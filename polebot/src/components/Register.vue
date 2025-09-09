@@ -1,37 +1,43 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../firebase';
 
 const router = useRouter();
 
-// State untuk form register
 const name = ref('');
 const email = ref('');
 const password = ref('');
 const errorMessage = ref('');
 const showError = ref(false);
 
-// Fungsi untuk register
-const handleRegister = () => {
+const handleRegister = async () => {
     if (!name.value || !email.value || !password.value) {
         errorMessage.value = 'Semua field harus diisi!';
         showError.value = true;
         return;
     }
 
-    // Contoh validasi sederhana
-    if (email.value.includes('@') && password.value.length >= 6) {
-        // Simulasi sukses register
-        alert('Registrasi berhasil!');
-        // Redirect ke halaman login
-        router.push('/login');
-    } else {
-        errorMessage.value = 'Email tidak valid atau password terlalu pendek!';
+    try {
+        const userCredential = await createUserWithEmailAndPassword(auth, email.value, password.value);
+        const user = userCredential.user;
+
+        // (Opsional) Simpan username ke localStorage
+        localStorage.setItem('user', JSON.stringify({
+            uid: user.uid,
+            email: user.email,
+            name: name.value
+        }));
+
+        alert(`Registrasi berhasil! Selamat datang, ${name.value}`);
+        router.push('/');
+    } catch (error: any) {
+        errorMessage.value = error.message;
         showError.value = true;
     }
 };
 
-// Fungsi untuk pindah ke halaman register
 const goToLogin = () => {
     router.push('/');
 };
@@ -53,13 +59,13 @@ const goToLogin = () => {
                 </header>
                 <form @submit.prevent="handleRegister" class="flex flex-col gap-2 px-6 md:px-8 py-6 justify-center items-center">
                     <label class="w-full text-left font-bold" for="username">Username</label>
-                    <input class="w-full h-12 border border-black p-3 rounded-2xl focus:outline-none focus:ring-2 focus:ring-cyan-500" type="text" id="username" name="username"
+                    <input class="w-full h-12 border border-black p-3 rounded-2xl focus:outline-none focus:ring-2 focus:ring-cyan-500" type="text" v-model="name" id="username" name="username"
                         placeholder="input username">
                     <label class="w-full text-left font-bold" for="email">Email</label>
-                    <input class="w-full h-12 border border-black p-3 rounded-2xl focus:outline-none focus:ring-2 focus:ring-cyan-500" type="email" id="email" name="email"
+                    <input class="w-full h-12 border border-black p-3 rounded-2xl focus:outline-none focus:ring-2 focus:ring-cyan-500" type="email" v-model="email" id="email" name="email"
                         placeholder="input email">
                     <label class="w-full text-left font-bold" for="password">Password</label>
-                    <input class="w-full h-12 border border-black p-2 rounded-2xl focus:outline-none focus:ring-2 focus:ring-cyan-500" type="password" id="password"
+                    <input class="w-full h-12 border border-black p-2 rounded-2xl focus:outline-none focus:ring-2 focus:ring-cyan-500" type="password" v-model="password" id="password"
                         name="password">
                     <a @click.prevent="goToLogin" href="#" class="w-full text-right mb-3 mt-1 text-cyan-600 underline">Login akun</a>
                     <button class="submit-btn p-3 rounded-xl w-full md:w-1/2 text-white font-bold cursor-pointer"

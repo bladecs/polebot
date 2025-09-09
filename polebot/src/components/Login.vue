@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-
+import { auth } from '../firebase';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 const router = useRouter();
 
 // State untuk form login
@@ -11,19 +12,18 @@ const errorMessage = ref('');
 const showError = ref(false);
 
 // Fungsi untuk login
-const handleLogin = () => {
+const handleLogin = async () => {
     if (!email.value || !password.value) {
         errorMessage.value = 'Email dan password harus diisi!';
         showError.value = true;
         return;
     }
 
-    // Contoh validasi sederhana
-    if (email.value === 'admin@example.com' && password.value === 'password123') {
-        // Redirect ke halaman dashboard
+    try {
+        const userCredential = await signInWithEmailAndPassword(auth, email.value, password.value);
         router.push('/dashboard');
-    } else {
-        errorMessage.value = 'Email atau password salah!';
+    } catch (error: any) {
+        errorMessage.value = error.message; // atau pesan custom
         showError.value = true;
     }
 };
@@ -48,14 +48,18 @@ const goToRegister = () => {
                         <p class="text-center md:text-right text-lg">WELCOME TO AMR DASHBOARD</p>
                     </div>
                 </header>
-                <form @submit.prevent="handleLogin" class="flex flex-col gap-2 px-6 md:px-8 py-6 justify-center items-center">
+                <form @submit.prevent="handleLogin"
+                    class="flex flex-col gap-2 px-6 md:px-8 py-6 justify-center items-center">
                     <label class="w-full text-left font-bold" for="email">Email</label>
-                    <input class="w-full h-12 border border-black p-3 rounded-2xl focus:outline-none focus:ring-2 focus:ring-cyan-500" type="email" id="email" name="email"
-                        placeholder="input email">
+                    <input
+                        class="w-full h-12 border border-black p-3 rounded-2xl focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                        type="email" v-model="email" id="email" name="email" placeholder="input email">
                     <label class="w-full text-left font-bold" for="password">Password</label>
-                    <input class="w-full h-12 border border-black p-2 rounded-2xl focus:outline-none focus:ring-2 focus:ring-cyan-500" type="password" id="password"
-                        name="password">
-                    <a @click.prevent="goToRegister" href="#" class="w-full text-right mb-3 mt-1 text-cyan-600 underline">Register akun</a>
+                    <input
+                        class="w-full h-12 border border-black p-2 rounded-2xl focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                        type="password" v-model="password" id="password" name="password">
+                    <a @click.prevent="goToRegister" href="#"
+                        class="w-full text-right mb-3 mt-1 text-cyan-600 underline">Register akun</a>
                     <button class="submit-btn p-3 rounded-xl w-full md:w-1/2 text-white font-bold cursor-pointer"
                         type="submit">Login</button>
                 </form>
@@ -101,7 +105,7 @@ const goToRegister = () => {
     z-index: 1;
 }
 
-.sideimg > * {
+.sideimg>* {
     position: relative;
     z-index: 2;
 }
