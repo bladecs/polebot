@@ -90,26 +90,48 @@ onMounted(() => {
             </header>
 
             <!-- Content -->
-            <section class="flex-1 overflow-y-auto p-6">
-                <div class="flex-1 h-full flex flex-row gap-4">
-                    <div class="content-indicator flex flex-row items-center rounded-2xl w-1/3 h-30">
+            <section class="content flex-1 overflow-y-auto p-6">
+                <div class="flex-1 h-30 mb-7 flex flex-row gap-4">
+                    <div class="content-indicator shadow-2xl flex flex-row items-center rounded-2xl w-1/3 h-30 pr-6">
                         <div class="trape flex justify-center items-center text-white pe-5 rounded-2xl">
                             <span class="material-symbols-outlined" style="font-size: 2.5rem;">computer</span>
                         </div>
-                        <p class="w-2/3 text-white ">01</p>
+                        <div class="description w-full flex flex-col justify-center items-end">
+                          <p class="text-white font-bold text-2xl">TITLE</p>
+                          <p class="text-white text-4xl font-bold"><span class="material-symbols-outlined"></span>08</p>
+                        </div>
                     </div>
-                    <div class="content-indicator flex flex-row items-center rounded-2xl w-1/3 h-30">
+                    <div class="content-indicator shadow-2xl flex flex-row items-center rounded-2xl w-1/3 h-30 pr-6">
                         <div class="trape flex justify-center items-center text-white pe-5 rounded-2xl">
                             <span class="material-symbols-outlined" style="font-size: 2.5rem;">construction</span>
                         </div>
-                        <p class="w-2/3 text-white ">01</p>
+                        <div class="description w-full flex flex-col justify-center items-end">
+                          <p class="text-white font-bold text-2xl">TITLE</p>
+                          <p class="text-white text-4xl font-bold"><span class="material-symbols-outlined"></span>08</p>
+                        </div>
                     </div>
-                    <div class="content-indicator flex flex-row items-center rounded-2xl w-1/3 h-30">
+                    <div class="content-indicator shadow-2xl flex flex-row items-center rounded-2xl w-1/3 h-30 pr-6">
                         <div class="trape flex justify-center items-center text-white pe-5 rounded-2xl">
                             <span class="material-symbols-outlined" style="font-size: 2.5rem;">battery_android_bolt</span>
                         </div>
-                        <p class="w-2/3 text-white ">01</p>
+                        <div class="description w-full flex flex-col justify-center items-end">
+                          <p class="text-white font-bold text-2xl">TITLE</p>
+                          <p class="text-white text-4xl font-bold"><span class="material-symbols-outlined"></span>08</p>
+                        </div>
                     </div>
+                </div>
+                <div class="flex flex-1 h-full flex-row gap-6">
+                  <div class="content-border w-2/3 h-full rounded-2xl">
+
+                  </div>
+                  <div class="w-1/3 h-full flex flex-col justify-center items-center gap-6">
+                    <div class="content-border rounded-2xl h-2/3 w-full">
+
+                    </div>
+                    <div class="content-border rounded-2xl h-1/3 w-full">
+
+                    </div>
+                  </div>
                 </div>
             </section>
         </main>
@@ -149,7 +171,7 @@ header {
 }
 
 .content-indicator {
-    background: linear-gradient(to top right, #9E9E9E, #383838);
+    background: linear-gradient(45deg, #9E9E9E, #383838,#383838);
 }
 
 .trape {
@@ -157,5 +179,12 @@ header {
     height: 100%;
     background: #878787;
     clip-path: polygon(0 0, 70% 0, 100% 100%, 0% 100%);
+}
+
+.content{
+  background: #525252;
+}
+.content-border{
+  background: #383838;
 }
 </style>
