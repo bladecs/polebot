@@ -688,6 +688,7 @@ const resetAll = () => {
 
 .sidebar.activate {
   width: 5rem;
+  width: 5rem;
 }
 
 /* styling navigasi */
