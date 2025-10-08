@@ -155,30 +155,18 @@ const recreateMarkersFromMissions = (missionData: Mission[]): void => {
 
       console.log(`🔍 Processing goal ${mission.id}:`, coordinates)
 
-      // Parse coordinates jika berupa string - PERBAIKAN UTAMA
+      // Parse coordinates jika berupa string
       if (typeof coordinates === 'string') {
         try {
-          // Coba parse pertama kali
           coordinates = JSON.parse(coordinates)
-          console.log(`📝 First parse result for mission ${mission.id}:`, coordinates)
-          console.log(`📝 Type after first parse:`, typeof coordinates)
-
-          // Jika hasil parse masih string, parse lagi
           if (typeof coordinates === 'string') {
-            console.log(`🔄 Need second parse for mission ${mission.id}`)
             coordinates = JSON.parse(coordinates)
-            console.log(`📝 Second parse result:`, coordinates)
-            console.log(`📝 Type after second parse:`, typeof coordinates)
           }
         } catch (parseError) {
           console.error(`❌ Failed to parse coordinates for mission ${mission.id}:`, parseError)
           return
         }
       }
-
-      // Sekarang coordinates seharusnya sudah object
-      console.log(`🔍 Final coordinates for ${mission.id}:`, coordinates)
-      console.log(`🔍 Final type:`, typeof coordinates)
 
       // Handle coordinates sebagai object
       if (coordinates && typeof coordinates === 'object') {
@@ -193,9 +181,15 @@ const recreateMarkersFromMissions = (missionData: Mission[]): void => {
           screenX = coords.x
           screenY = coords.y
           console.log(`✅ Found direct coordinates:`, { screenX, screenY })
+        } else if (coords.ros && coords.ros.x !== undefined && coords.ros.y !== undefined) {
+          // Convert dari ROS coordinates ke screen coordinates
+          const screenCoords = viewer.scene.rosToGlobal(coords.ros.x, coords.ros.y)
+          screenX = screenCoords.x
+          screenY = screenCoords.y
+          console.log(`✅ Converted ROS to screen:`, { screenX, screenY })
         } else {
           console.warn(`❌ Unknown coordinate structure for goal ${mission.id}`)
-          console.log('🔍 Available properties:', Object.getOwnPropertyNames(coords))
+          return
         }
       }
 
@@ -218,7 +212,7 @@ const recreateMarkersFromMissions = (missionData: Mission[]): void => {
     }
   })
 
-  // Process no-go zones (sama seperti di atas)
+  // Process no-go zones
   const noGoMissions = missionData.filter(mission => mission.type === 'no_go_zone')
   console.log(`🚫 Found ${noGoMissions.length} no-go zones to render`)
 
@@ -232,7 +226,6 @@ const recreateMarkersFromMissions = (missionData: Mission[]): void => {
       if (typeof coordinates === 'string') {
         try {
           coordinates = JSON.parse(coordinates)
-          // Jika masih string, parse lagi
           if (typeof coordinates === 'string') {
             coordinates = JSON.parse(coordinates)
           }
@@ -253,6 +246,10 @@ const recreateMarkersFromMissions = (missionData: Mission[]): void => {
         } else if (coords.points && Array.isArray(coords.points) && coords.points.length === 2) {
           point1 = coords.points[0]
           point2 = coords.points[1]
+        } else if (coords.point1?.ros && coords.point2?.ros) {
+          // Convert dari ROS coordinates ke screen coordinates
+          point1 = viewer.scene.rosToGlobal(coords.point1.ros.x, coords.point1.ros.y)
+          point2 = viewer.scene.rosToGlobal(coords.point2.ros.x, coords.point2.ros.y)
         }
 
         if (point1 && point2 &&
@@ -300,7 +297,7 @@ const saveMissionToDB = async (name: string, type: 'goal' | 'no_go_zone', coordi
     const missionData = {
       name,
       type,
-      coordinates: JSON.stringify(coordinates) // Stringify coordinates untuk konsistensi
+      coordinates: JSON.stringify(coordinates)
     }
 
     const response = await fetch(`${API_BASE}/missions`, {
@@ -389,59 +386,140 @@ const deleteMissionFromDB = async (id: number): Promise<any> => {
   }
 }
 
-// Initialize map
+// Fungsi untuk center map di container
+const centerMapInContainer = (): void => {
+  if (!viewer || !viewer.scene) return;
+
+  const mapContainer = document.getElementById('map');
+  if (!mapContainer) return;
+
+  // Dapatkan ukuran container
+  const containerWidth = mapContainer.clientWidth;
+  const containerHeight = mapContainer.clientHeight;
+
+  console.log('🎯 Centering map in container:', {
+    container: { containerWidth, containerHeight }
+  });
+
+  // Center the map
+  viewer.scene.x = containerWidth / 2;
+  viewer.scene.y = containerHeight / 2;
+};
+
+// Fungsi untuk handle window resize dengan throttle
+let resizeTimeout: number | null = null;
+const handleResize = (): void => {
+  if (resizeTimeout) {
+    clearTimeout(resizeTimeout);
+  }
+
+  resizeTimeout = window.setTimeout(() => {
+    if (viewer && mapLoaded.value) {
+      const mapContainer = document.getElementById('map');
+      if (mapContainer) {
+        const containerWidth = mapContainer.clientWidth;
+        const containerHeight = mapContainer.clientHeight;
+        
+        console.log('🔄 Resizing map to:', { containerWidth, containerHeight });
+        
+        // Update viewer size
+        viewer.width = containerWidth;
+        viewer.height = containerHeight;
+        
+        // Update stage dimensions
+        if (viewer.stage && viewer.stage.canvas) {
+          viewer.stage.canvas.width = containerWidth;
+          viewer.stage.canvas.height = containerHeight;
+        }
+        
+        // Re-center map
+        centerMapInContainer();
+        
+        // Force redraw
+        if (viewer.stage) {
+          viewer.stage.update();
+        }
+        
+        console.log('✅ Map resized successfully');
+      }
+    }
+  }, 250);
+};
+
+// Setup map events
+const setupMapEvents = (): void => {
+  if (!viewer) return;
+
+  // Map click events dengan error handling
+  viewer.scene.addEventListener('stagemousedown', (event: any) => {
+    if (!mapLoaded.value) {
+      console.log('⚠️ Map not loaded yet, ignoring click')
+      return
+    }
+
+    try {
+      const x = event.stageX
+      const y = event.stageY
+
+      const coords = viewer.scene.globalToRos(x, y)
+      const rosX = coords.x
+      const rosY = coords.y
+
+      console.log('🖱️ Map clicked at:', { 
+        screen: { x, y }, 
+        ros: { rosX, rosY },
+        sceneOffset: { x: viewer.scene.x, y: viewer.scene.y }
+      })
+
+      if (isAddingGoal.value) {
+        addGoal(x, y, rosX, rosY)
+      } else if (isAddingNoGoZone.value) {
+        addNoGoZonePoint(x, y, rosX, rosY)
+      } else if (isEditingGoal.value && editingGoal.value) {
+        updateGoalPosition(editingGoal.value.id, x, y, rosX, rosY)
+      }
+    } catch (error) {
+      console.error('❌ Error handling map click:', error)
+    }
+  })
+
+  // Mouse move untuk preview no-go zone
+  viewer.scene.addEventListener('stagemousemove', (event: any) => {
+    if (isAddingNoGoZone.value && currentNoGoZonePoints.value.length === 1) {
+      updateNoGoZonePreview(event.stageX, event.stageY)
+    }
+  })
+}
+
+// Initialize map - FIXED CANVAS VERSION
 const initializeMap = (): void => {
   const mapContainer = document.getElementById('map')
   if (mapContainer && typeof ROS2D !== 'undefined' && typeof createjs !== 'undefined') {
     const containerWidth = mapContainer.clientWidth
     const containerHeight = mapContainer.clientHeight
 
-    console.log('🗺️ Initializing map with size:', { containerWidth, containerHeight })
+    console.log('🗺️ Initializing map with fixed size:', { containerWidth, containerHeight })
 
+    // Clear existing viewer jika ada
+    if (viewer) {
+      viewer.destroy();
+    }
+
+    // Create viewer dengan fixed dimensions
     viewer = new ROS2D.Viewer({
       divID: 'map',
       width: containerWidth,
       height: containerHeight
     })
 
-    // Map click events dengan error handling
-    viewer.scene.addEventListener('stagemousedown', (event: any) => {
-      if (!mapLoaded.value) {
-        console.log('⚠️ Map not loaded yet, ignoring click')
-        return
-      }
-
-      try {
-        const x = event.stageX
-        const y = event.stageY
-
-        const coords = viewer.scene.globalToRos(x, y)
-        const rosX = coords.x
-        const rosY = coords.y
-
-        console.log('🖱️ Map clicked at:', { screen: { x, y }, ros: { rosX, rosY } })
-
-        if (isAddingGoal.value) {
-          addGoal(x, y, rosX, rosY)
-        } else if (isAddingNoGoZone.value) {
-          addNoGoZonePoint(x, y, rosX, rosY)
-        } else if (isEditingGoal.value && editingGoal.value) {
-          updateGoalPosition(editingGoal.value.id, x, y, rosX, rosY)
-        }
-      } catch (error) {
-        console.error('❌ Error handling map click:', error)
-      }
-    })
-
-    // Mouse move untuk preview no-go zone
-    viewer.scene.addEventListener('stagemousemove', (event: any) => {
-      if (isAddingNoGoZone.value && currentNoGoZonePoints.value.length === 1) {
-        updateNoGoZonePreview(event.stageX, event.stageY)
-      }
-    })
+    // Setup event listeners untuk map
+    setupMapEvents();
 
     mapInitialized.value = true
-    console.log('✅ Map viewer initialized')
+    console.log('✅ Map viewer initialized with fixed size')
+
+    // Add resize listener
+    window.addEventListener('resize', handleResize);
   } else {
     console.error('❌ ROS2D or createjs not available, or map container not found')
   }
@@ -482,7 +560,7 @@ onMounted(async () => {
   // Load missions SETELAH map initialized
   await loadMissions()
 
-  // Map Topic dengan error handling
+  // Map Topic dengan fixed canvas - MODIFIED VERSION
   try {
     const mapTopic = new ROSLIB.Topic({
       ros,
@@ -499,6 +577,17 @@ onMounted(async () => {
           viewer.scene.removeAllChildren()
         }
 
+        // Hitung ukuran map sebenarnya dari ROS
+        const mapWidth = msg.info.width * msg.info.resolution;
+        const mapHeight = msg.info.height * msg.info.resolution;
+        
+        console.log('🗺️ Map dimensions from ROS:', { 
+          width: mapWidth, 
+          height: mapHeight,
+          resolution: msg.info.resolution,
+          cells: { width: msg.info.width, height: msg.info.height }
+        });
+
         const grid = new ROS2D.OccupancyGrid({
           message: msg,
           rootObject: viewer.scene
@@ -506,19 +595,25 @@ onMounted(async () => {
 
         viewer.scene.addChild(grid)
 
-        viewer.scaleToDimensions(
-          msg.info.width * msg.info.resolution,
-          msg.info.height * msg.info.resolution
-        )
-        viewer.shift(msg.info.origin.position.x, msg.info.origin.position.y)
+        // Scale dan posisikan map agar fit di container
+        viewer.scaleToDimensions(mapWidth, mapHeight);
+        viewer.shift(msg.info.origin.position.x, msg.info.origin.position.y);
 
-        mapLoaded.value = true
-        console.log('🗺️ Map loaded and transformed successfully')
+        // Center the map in the container
+        centerMapInContainer();
+
+        // Force stage update
+        if (viewer.stage) {
+          viewer.stage.update();
+        }
+
+        mapLoaded.value = true;
+        console.log('🗺️ Map loaded and centered successfully in fixed container');
 
         // Unsubscribe setelah map berhasil dimuat
-        mapTopic.unsubscribe()
+        mapTopic.unsubscribe();
       } catch (error) {
-        console.error('❌ Error loading map:', error)
+        console.error('❌ Error loading map:', error);
       }
     })
   } catch (error) {
@@ -818,6 +913,7 @@ const createHTMLMarker = (x: number, y: number, id: number, type: 'goal' | 'nogo
   marker.className = `absolute w-4 h-4 ${type === 'goal' ? 'rounded-full bg-red-500 border-2 border-white cursor-move' : 'rounded-sm bg-orange-500 border-2 border-orange-600'} z-50 transition-all duration-200 hover:scale-125`
   marker.style.left = `${x - 8}px`
   marker.style.top = `${y - 8}px`
+  marker.style.zIndex = '50'
 
   const label = document.createElement('div')
   label.textContent = type === 'goal' ? (name || `GOAL ${id}`) : `${id}`
@@ -859,8 +955,9 @@ const createNoGoZoneElement = (left: number, top: number, width: number, height:
   zone.style.top = `${top}px`
   zone.style.width = `${width}px`
   zone.style.height = `${height}px`
-  zone.style.backgroundColor = 'rgba(255, 0, 0, 0.05)'
+  zone.style.backgroundColor = 'rgba(255, 0, 0, 0.1)'
   zone.style.borderColor = 'rgb(239, 68, 68)'
+  zone.style.zIndex = '40'
 
   const label = document.createElement('div')
   label.textContent = `NO-GO ZONE ${id}`
@@ -1059,7 +1156,6 @@ const getGoalCoordinates = (mission: Mission): string => {
     // Parse jika coordinates berupa string
     if (typeof coords === 'string') {
       coords = JSON.parse(coords)
-      // Jika masih string, parse lagi
       if (typeof coords === 'string') {
         coords = JSON.parse(coords)
       }
@@ -1105,8 +1201,12 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyPress)
+  window.removeEventListener('resize', handleResize) // Cleanup resize listener
   if (ros) {
     ros.close()
+  }
+  if (viewer) {
+    viewer.destroy()
   }
 })
 </script>
@@ -1184,14 +1284,14 @@ onUnmounted(() => {
         <div v-else class="w-32"></div>
       </header>
 
-      <!-- Content Area - FULL SCROLLABLE WITH TALL MAP -->
+      <!-- Content Area - FULL SCROLLABLE WITH FIXED MAP -->
       <section class="content flex-1 overflow-auto bg-gray-900">
         <div class="min-h-full p-4 md:p-6">
           <div class="max-w-full h-full flex flex-col xl:flex-row gap-4 md:gap-6">
             <!-- Left Column - Map and Controls (SCROLLABLE) -->
             <div class="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
-              <!-- Map Container - TALL VERSION -->
-              <div class="content-border rounded-xl md:rounded-2xl flex flex-col min-h-[70vh] shadow-lg">
+              <!-- Map Container - FIXED HEIGHT -->
+              <div class="content-border rounded-xl md:rounded-2xl flex flex-col map-fixed-container shadow-lg">
                 <!-- Map Header -->
                 <div
                   class="flex flex-col sm:flex-row sm:items-center justify-between p-4 md:p-6 gap-4 shrink-0 border-b border-gray-700">
@@ -1219,32 +1319,36 @@ onUnmounted(() => {
                   </div>
                 </div>
 
-                <!-- Map Visualization - TALL & SCROLLABLE -->
+                <!-- Map Visualization - FIXED SIZE -->
                 <div class="flex-1 p-3 md:p-4 min-h-0">
                   <div
-                    class="w-full h-full min-h-[500px] border-2 border-gray-700 rounded-lg md:rounded-xl shadow-xl bg-gray-800 relative overflow-hidden">
-                    <div id="map" class="w-full h-full relative">
-                      <div v-if="isAddingGoal || isAddingNoGoZone"
-                        class="absolute inset-0 pointer-events-none z-30 border-4 border-dashed border-yellow-400 opacity-30 rounded-lg">
-                      </div>
-
-                      <!-- Loading overlay -->
-                      <div v-if="!mapLoaded"
-                        class="absolute inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-10">
-                        <div class="text-center">
-                          <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4">
-                          </div>
-                          <p class="text-white font-medium">Loading Map...</p>
-                          <p class="text-gray-400 text-sm mt-1">Waiting for ROS connection</p>
+                    class="w-full h-full border-2 border-gray-700 rounded-lg md:rounded-xl shadow-xl bg-gray-800 relative overflow-hidden map-inner-container">
+                    <!-- Map Container dengan fixed wrapper -->
+                    <div class="map-fixed-wrapper w-full h-full absolute inset-0">
+                      <div id="map" class="w-full h-full absolute inset-0">
+                        <div v-if="isAddingGoal || isAddingNoGoZone"
+                          class="absolute inset-0 pointer-events-none z-30 border-4 border-dashed border-yellow-400 opacity-30 rounded-lg">
                         </div>
-                      </div>
 
-                      <!-- Debug info -->
-                      <div v-if="mapLoaded"
-                        class="absolute top-2 left-2 bg-black bg-opacity-70 text-white text-xs p-2 rounded z-40">
-                        <div>Map: {{ mapLoaded ? 'Ready' : 'Loading' }}</div>
-                        <div>Markers: {{ markers.length }}</div>
-                        <div>Zones: {{ noGoZones.length }}</div>
+                        <!-- Loading overlay -->
+                        <div v-if="!mapLoaded"
+                          class="absolute inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-10">
+                          <div class="text-center">
+                            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4">
+                            </div>
+                            <p class="text-white font-medium">Loading Map...</p>
+                            <p class="text-gray-400 text-sm mt-1">Waiting for ROS connection</p>
+                          </div>
+                        </div>
+
+                        <!-- Debug info -->
+                        <div v-if="mapLoaded"
+                          class="absolute top-2 left-2 bg-black bg-opacity-70 text-white text-xs p-2 rounded z-40">
+                          <div>Map: {{ mapLoaded ? 'Ready' : 'Loading' }}</div>
+                          <div>Markers: {{ markers.length }}</div>
+                          <div>Zones: {{ noGoZones.length }}</div>
+                          <div>Center: {{ viewer ? `x: ${Math.round(viewer.scene.x)}, y: ${Math.round(viewer.scene.y)}` : 'N/A' }}</div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1500,7 +1604,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* CSS tetap sama seperti sebelumnya */
+/* CSS dengan fixed canvas dan no overflow */
 .sidebar {
   background: #1f2937;
   width: 16rem;
@@ -1540,6 +1644,57 @@ header {
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
+/* FIXED MAP CONTAINER STYLES */
+.map-fixed-container {
+  height: 70vh; /* Fixed height */
+  min-height: 500px;
+  max-height: 800px;
+}
+
+.map-inner-container {
+  position: relative;
+  height: 100%;
+}
+
+.map-fixed-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+#map {
+  background: #111827;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+}
+
+/* Ensure ROS2D canvas fits perfectly */
+#map canvas {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+/* Marker positioning dalam fixed container */
+[id^="goal-"], 
+[id^="nogo-zone-"], 
+[id^="nogo-corner-"] {
+  position: absolute;
+  pointer-events: auto;
+  transform: translate(-50%, -50%); /* Center markers */
+  z-index: 50;
+}
+
+/* Control buttons */
 .control-btn {
   padding: 16px;
   border-radius: 10px;
@@ -1601,10 +1756,6 @@ header {
 
 .status-message.bg-orange-900 {
   border-left-color: #f97316;
-}
-
-#map {
-  background: #111827;
 }
 
 .mission-item {
@@ -1715,23 +1866,32 @@ button:disabled:hover {
   min-height: 100%;
 }
 
-@media (max-width: 1400px) {
-  .content {
-    padding: 1rem;
-  }
-
-  .flex.gap-6 {
-    gap: 1rem;
+/* Responsive fixed heights */
+@media (max-height: 700px) {
+  .map-fixed-container {
+    height: 60vh;
+    min-height: 400px;
   }
 }
 
-@media (max-width: 1200px) {
-  .min-h-full.flex.gap-6 {
-    flex-direction: column;
+@media (min-height: 900px) {
+  .map-fixed-container {
+    height: 75vh;
+  }
+}
+
+@media (min-height: 1200px) {
+  .map-fixed-container {
+    height: 80vh;
   }
 }
 
 @media (max-width: 768px) {
+  .map-fixed-container {
+    height: 50vh;
+    min-height: 300px;
+  }
+  
   .sidebar {
     width: 100%;
     height: auto;
@@ -1772,14 +1932,6 @@ button:disabled:hover {
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 }
 
-.min-h-\[70vh\] {
-  min-height: 70vh;
-}
-
-.min-h-\[500px\] {
-  min-height: 500px;
-}
-
 html {
   scroll-behavior: smooth;
 }
@@ -1788,15 +1940,28 @@ html {
   height: 100vh;
 }
 
-@media (min-height: 900px) {
-  .min-h-\[70vh\] {
-    min-height: 75vh;
-  }
+/* Ensure no overflow in any scenario */
+* {
+  box-sizing: border-box;
 }
 
-@media (min-height: 1200px) {
-  .min-h-\[70vh\] {
-    min-height: 80vh;
-  }
+#map * {
+  max-width: none;
+  max-height: none;
+}
+
+/* Fix untuk CreateJS stage */
+.ros2d-viewer {
+  width: 100% !important;
+  height: 100% !important;
+  position: relative !important;
+}
+
+/* Prevent text selection on map */
+#map {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
 }
 </style>
