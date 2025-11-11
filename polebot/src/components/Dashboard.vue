@@ -1,1601 +1,216 @@
-<script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import * as ROSLIB from 'roslib'
-
-// Reactive state dengan type yang jelas
-const isCollapsed = ref(false)
-const isAddingGoal = ref(false)
-const isAddingNoGoZone = ref(false)
-const isEditingGoal = ref(false)
-const goalCount = ref(0)
-const noGoZoneCount = ref(0)
-const mapLoaded = ref(false)
-const mapInitialized = ref(false)
-
-// Interfaces untuk type safety
-interface Point {
-  x: number;
-  y: number;
-}
-
-interface Marker {
-  id: number;
-  x: number;
-  y: number;
-  type: 'goal';
-}
-
-interface NoGoZone {
-  id: number;
-  points: Point[];
-  width: number;
-  height: number;
-}
-
-interface MissionCoordinates {
-  screen?: Point;
-  ros?: Point;
-  point1?: { screen: Point; ros: Point };
-  point2?: { screen: Point; ros: Point };
-  points?: Point[];
-  width?: number;
-  height?: number;
-  x?: number;
-  y?: number;
-}
-
-interface Mission {
-  id: number;
-  name: string;
-  type: 'goal' | 'no_go_zone';
-  coordinates: MissionCoordinates | string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface SystemInfo {
-  rosConnected: string;
-}
-
-// Reactive references
-const markers = ref<Marker[]>([])
-const noGoZones = ref<NoGoZone[]>([])
-const currentNoGoZonePoints = ref<Point[]>([])
-const missions = ref<Mission[]>([])
-const editingMission = ref<Mission | null>(null)
-const editingGoal = ref<Mission | null>(null)
-const showMissionModal = ref(false)
-const missionName = ref('')
-const systemInfo = ref<SystemInfo>({
-  rosConnected: 'connecting...'
-})
-
-// ROS variables dengan type declaration
-let ros: any = null
-let viewer: any = null
-let goalTopic: any = null
-let noGoZoneTopic: any = null
-let tempNoGoZoneElement: HTMLElement | null = null
-
-// Declare external libraries untuk TypeScript
-declare const ROS2D: any;
-declare const createjs: any;
-
-// API base URL
-const API_BASE = 'http://192.168.1.45:3001/api'
-
-// Basic functions
-const toggleSidebar = () => {
-  isCollapsed.value = !isCollapsed.value
-}
-
-// Watch for map loaded state to recreate markers
-watch([mapLoaded, mapInitialized], ([newMapLoaded, newMapInitialized]) => {
-  if (newMapLoaded && newMapInitialized && missions.value.length > 0) {
-    console.log('🗺️ Map ready, recreating markers from missions...')
-    nextTick(() => {
-      recreateMarkersFromMissions(missions.value)
-    })
-  }
-})
-
-// Load missions from database
-const loadMissions = async (): Promise<void> => {
-  try {
-    console.log('📥 Loading missions from database...')
-    const response = await fetch(`${API_BASE}/missions`)
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    const missionData: Mission[] = await response.json()
-    console.log('📦 Missions loaded:', missionData.length)
-
-    missions.value = missionData
-    updateMissionCounts()
-
-    if (mapLoaded.value && mapInitialized.value) {
-      console.log('🎯 Map ready, rendering markers immediately')
-      nextTick(() => {
-        recreateMarkersFromMissions(missionData)
-      })
-    }
-  } catch (error) {
-    console.error('❌ Failed to load missions:', error)
-  }
-}
-
-// Recreate markers from mission data
-const recreateMarkersFromMissions = (missionData: Mission[]): void => {
-  console.log('🎯 Recreating markers from missions...')
-
-  if (!viewer || !mapLoaded.value) {
-    console.error('❌ Map not ready for rendering markers')
-    return
-  }
-
-  // Clear existing markers
-  markers.value = []
-  noGoZones.value = []
-
-  const mapElement = document.getElementById('map')
-  if (mapElement) {
-    const elementsToRemove = mapElement.querySelectorAll('[id^="goal-"], [id^="nogo-zone-"], [id^="nogo-corner-"]')
-    console.log(`🧹 Removing ${elementsToRemove.length} existing marker elements`)
-    elementsToRemove.forEach(el => el.remove())
-  }
-
-  // Process goals
-  const goalMissions = missionData.filter(mission => mission.type === 'goal')
-  console.log(`🎯 Found ${goalMissions.length} goals to render`)
-
-  goalMissions.forEach(mission => {
-    try {
-      let coordinates = mission.coordinates
-      let screenX: number | undefined, screenY: number | undefined
-
-      console.log(`🔍 Processing goal ${mission.id}:`, coordinates)
-
-      // Parse coordinates jika berupa string
-      if (typeof coordinates === 'string') {
-        try {
-          coordinates = JSON.parse(coordinates)
-          if (typeof coordinates === 'string') {
-            coordinates = JSON.parse(coordinates)
-          }
-        } catch (parseError) {
-          console.error(`❌ Failed to parse coordinates for mission ${mission.id}:`, parseError)
-          return
-        }
-      }
-
-      // Handle coordinates sebagai object
-      if (coordinates && typeof coordinates === 'object') {
-        const coords = coordinates as any
-
-        // Coba berbagai struktur coordinates
-        if (coords.screen && coords.screen.x !== undefined && coords.screen.y !== undefined) {
-          screenX = coords.screen.x
-          screenY = coords.screen.y
-          console.log(`✅ Found screen coordinates:`, { screenX, screenY })
-        } else if (coords.x !== undefined && coords.y !== undefined) {
-          screenX = coords.x
-          screenY = coords.y
-          console.log(`✅ Found direct coordinates:`, { screenX, screenY })
-        } else if (coords.ros && coords.ros.x !== undefined && coords.ros.y !== undefined) {
-          // Convert dari ROS coordinates ke screen coordinates
-          const screenCoords = viewer.scene.rosToGlobal(coords.ros.x, coords.ros.y)
-          screenX = screenCoords.x
-          screenY = screenCoords.y
-          console.log(`✅ Converted ROS to screen:`, { screenX, screenY })
-        } else {
-          console.warn(`❌ Unknown coordinate structure for goal ${mission.id}`)
-          return
-        }
-      }
-
-      if (screenX === undefined || screenY === undefined) {
-        console.warn(`⚠️ Could not extract coordinates for goal ${mission.id}`)
-        return
-      }
-
-      console.log(`📍 Rendering goal ${mission.id} at screen coordinates:`, { screenX, screenY })
-
-      markers.value.push({
-        id: mission.id,
-        x: screenX,
-        y: screenY,
-        type: 'goal'
-      })
-      createHTMLMarker(screenX, screenY, mission.id, 'goal', mission.name)
-    } catch (error) {
-      console.error(`❌ Error rendering goal ${mission.id}:`, error)
-    }
-  })
-
-  // Process no-go zones
-  const noGoMissions = missionData.filter(mission => mission.type === 'no_go_zone')
-  console.log(`🚫 Found ${noGoMissions.length} no-go zones to render`)
-
-  noGoMissions.forEach(mission => {
-    try {
-      let coordinates = mission.coordinates
-
-      console.log(`🔍 Processing no-go zone ${mission.id}:`, coordinates)
-
-      // Parse coordinates jika berupa string
-      if (typeof coordinates === 'string') {
-        try {
-          coordinates = JSON.parse(coordinates)
-          if (typeof coordinates === 'string') {
-            coordinates = JSON.parse(coordinates)
-          }
-        } catch (parseError) {
-          console.error(`❌ Failed to parse coordinates for no-go zone ${mission.id}:`, parseError)
-          return
-        }
-      }
-
-      // Handle no-go zone coordinates
-      if (coordinates && typeof coordinates === 'object') {
-        const coords = coordinates as any
-        let point1: Point | undefined, point2: Point | undefined
-
-        if (coords.point1 && coords.point2) {
-          point1 = coords.point1.screen || coords.point1
-          point2 = coords.point2.screen || coords.point2
-        } else if (coords.points && Array.isArray(coords.points) && coords.points.length === 2) {
-          point1 = coords.points[0]
-          point2 = coords.points[1]
-        } else if (coords.point1?.ros && coords.point2?.ros) {
-          // Convert dari ROS coordinates ke screen coordinates
-          point1 = viewer.scene.rosToGlobal(coords.point1.ros.x, coords.point1.ros.y)
-          point2 = viewer.scene.rosToGlobal(coords.point2.ros.x, coords.point2.ros.y)
-        }
-
-        if (point1 && point2 &&
-          point1.x !== undefined && point1.y !== undefined &&
-          point2.x !== undefined && point2.y !== undefined) {
-
-          const width = coords.width || Math.abs(point2.x - point1.x)
-          const height = coords.height || Math.abs(point2.y - point1.y)
-          const left = Math.min(point1.x, point2.x)
-          const top = Math.min(point1.y, point2.y)
-
-          console.log(`📐 Rendering no-go zone ${mission.id}:`, { point1, point2, width, height })
-
-          noGoZones.value.push({
-            id: mission.id,
-            points: [point1, point2],
-            width,
-            height
-          })
-          createNoGoZoneElement(left, top, width, height, mission.id)
-        } else {
-          console.warn(`⚠️ Invalid no-go zone points for ${mission.id}`)
-        }
-      }
-    } catch (error) {
-      console.error(`❌ Error rendering no-go zone ${mission.id}:`, error)
-    }
-  })
-
-  console.log('✅ Markers recreation completed')
-}
-
-// Update mission counts
-const updateMissionCounts = (): void => {
-  goalCount.value = missions.value.filter(m => m.type === 'goal').length
-  noGoZoneCount.value = missions.value.filter(m => m.type === 'no_go_zone').length
-  console.log(`📊 Mission counts - Goals: ${goalCount.value}, No-Go Zones: ${noGoZoneCount.value}`)
-}
-
-// Save mission to database
-const saveMissionToDB = async (name: string, type: 'goal' | 'no_go_zone', coordinates: MissionCoordinates): Promise<any> => {
-  try {
-    console.log('💾 Saving mission to database:', { name, type })
-
-    const missionData = {
-      name,
-      type,
-      coordinates: JSON.stringify(coordinates)
-    }
-
-    const response = await fetch(`${API_BASE}/missions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(missionData)
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const result = await response.json()
-    console.log('✅ Mission saved successfully:', result)
-    await loadMissions()
-    return result
-  } catch (error) {
-    console.error('❌ Failed to save mission:', error)
-    throw error
-  }
-}
-
-// Update mission in database
-const updateMissionInDB = async (id: number, name: string, coordinates: MissionCoordinates): Promise<any> => {
-  try {
-    console.log('✏️ Updating mission in database:', { id, name })
-    const response = await fetch(`${API_BASE}/missions/${id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name,
-        coordinates: JSON.stringify(coordinates)
-      })
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const result = await response.json()
-    console.log('✅ Mission updated successfully:', result)
-    await loadMissions()
-    return result
-  } catch (error) {
-    console.error('❌ Failed to update mission:', error)
-    throw error
-  }
-}
-
-// Update goal coordinates in database
-const updateGoalCoordinatesInDB = async (id: number, coordinates: MissionCoordinates): Promise<void> => {
-  try {
-    const mission = missions.value.find(m => m.id === id)
-    if (mission) {
-      await updateMissionInDB(id, mission.name, coordinates)
-    }
-  } catch (error) {
-    console.error('❌ Failed to update goal coordinates:', error)
-    throw error
-  }
-}
-
-// Delete mission from database
-const deleteMissionFromDB = async (id: number): Promise<any> => {
-  try {
-    console.log('🗑️ Deleting mission from database:', id)
-    const response = await fetch(`${API_BASE}/missions/${id}`, {
-      method: 'DELETE'
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const result = await response.json()
-    console.log('✅ Mission deleted successfully:', result)
-    await loadMissions()
-    return result
-  } catch (error) {
-    console.error('❌ Failed to delete mission:', error)
-    throw error
-  }
-}
-
-// Fungsi untuk center map di container
-const centerMapInContainer = (): void => {
-  if (!viewer || !viewer.scene) return;
-
-  const mapContainer = document.getElementById('map');
-  if (!mapContainer) return;
-
-  // Dapatkan ukuran container
-  const containerWidth = mapContainer.clientWidth;
-  const containerHeight = mapContainer.clientHeight;
-
-  console.log('🎯 Centering map in container:', {
-    container: { containerWidth, containerHeight }
-  });
-
-  // Center the map
-  viewer.scene.x = containerWidth / 2;
-  viewer.scene.y = containerHeight / 2;
-};
-
-// Fungsi untuk handle window resize dengan throttle
-let resizeTimeout: number | null = null;
-const handleResize = (): void => {
-  if (resizeTimeout) {
-    clearTimeout(resizeTimeout);
-  }
-
-  resizeTimeout = window.setTimeout(() => {
-    if (viewer && mapLoaded.value) {
-      const mapContainer = document.getElementById('map');
-      if (mapContainer) {
-        const containerWidth = mapContainer.clientWidth;
-        const containerHeight = mapContainer.clientHeight;
-        
-        console.log('🔄 Resizing map to:', { containerWidth, containerHeight });
-        
-        // Update viewer size
-        viewer.width = containerWidth;
-        viewer.height = containerHeight;
-        
-        // Update stage dimensions
-        if (viewer.stage && viewer.stage.canvas) {
-          viewer.stage.canvas.width = containerWidth;
-          viewer.stage.canvas.height = containerHeight;
-        }
-        
-        // Re-center map
-        centerMapInContainer();
-        
-        // Force redraw
-        if (viewer.stage) {
-          viewer.stage.update();
-        }
-        
-        console.log('✅ Map resized successfully');
-      }
-    }
-  }, 250);
-};
-
-// Setup map events
-const setupMapEvents = (): void => {
-  if (!viewer) return;
-
-  // Map click events dengan error handling
-  viewer.scene.addEventListener('stagemousedown', (event: any) => {
-    if (!mapLoaded.value) {
-      console.log('⚠️ Map not loaded yet, ignoring click')
-      return
-    }
-
-    try {
-      const x = event.stageX
-      const y = event.stageY
-
-      const coords = viewer.scene.globalToRos(x, y)
-      const rosX = coords.x
-      const rosY = coords.y
-
-      console.log('🖱️ Map clicked at:', { 
-        screen: { x, y }, 
-        ros: { rosX, rosY },
-        sceneOffset: { x: viewer.scene.x, y: viewer.scene.y }
-      })
-
-      if (isAddingGoal.value) {
-        addGoal(x, y, rosX, rosY)
-      } else if (isAddingNoGoZone.value) {
-        addNoGoZonePoint(x, y, rosX, rosY)
-      } else if (isEditingGoal.value && editingGoal.value) {
-        updateGoalPosition(editingGoal.value.id, x, y, rosX, rosY)
-      }
-    } catch (error) {
-      console.error('❌ Error handling map click:', error)
-    }
-  })
-
-  // Mouse move untuk preview no-go zone
-  viewer.scene.addEventListener('stagemousemove', (event: any) => {
-    if (isAddingNoGoZone.value && currentNoGoZonePoints.value.length === 1) {
-      updateNoGoZonePreview(event.stageX, event.stageY)
-    }
-  })
-}
-
-// Initialize map - FIXED CANVAS VERSION
-const initializeMap = (): void => {
-  const mapContainer = document.getElementById('map')
-  if (mapContainer && typeof ROS2D !== 'undefined' && typeof createjs !== 'undefined') {
-    const containerWidth = mapContainer.clientWidth
-    const containerHeight = mapContainer.clientHeight
-
-    console.log('🗺️ Initializing map with fixed size:', { containerWidth, containerHeight })
-
-    // Clear existing viewer jika ada
-    if (viewer) {
-      viewer.destroy();
-    }
-
-    // Create viewer dengan fixed dimensions
-    viewer = new ROS2D.Viewer({
-      divID: 'map',
-      width: containerWidth,
-      height: containerHeight
-    })
-
-    // Setup event listeners untuk map
-    setupMapEvents();
-
-    mapInitialized.value = true
-    console.log('✅ Map viewer initialized with fixed size')
-
-    // Add resize listener
-    window.addEventListener('resize', handleResize);
-  } else {
-    console.error('❌ ROS2D or createjs not available, or map container not found')
-  }
-}
-
-// ROS initialization and map setup
-onMounted(async () => {
-  if (typeof ROS2D === 'undefined' || typeof createjs === 'undefined') {
-    console.error('❌ ROS2D atau createjs belum terload!')
-    return
-  }
-
-  console.log('🚀 Initializing application...')
-
-  // Initialize ROS connection first
-  try {
-    ros = new ROSLIB.Ros({ url: 'ws://192.168.1.45:9090' })
-    ros.on('connection', () => {
-      console.log('✅ Connected to ROSBridge')
-      systemInfo.value.rosConnected = 'connected'
-    })
-    ros.on('error', (error: any) => {
-      console.error('❌ ROS connection error:', error)
-      systemInfo.value.rosConnected = 'disconnected'
-    })
-    ros.on('close', () => {
-      console.log('🔌 ROS connection closed')
-      systemInfo.value.rosConnected = 'disconnected'
-    })
-  } catch (error) {
-    console.error('❌ Failed to initialize ROS connection:', error)
-    systemInfo.value.rosConnected = 'error'
-  }
-
-  await nextTick()
-  initializeMap()
-
-  // Load missions SETELAH map initialized
-  await loadMissions()
-
-  // Map Topic dengan fixed canvas - MODIFIED VERSION
-  try {
-    const mapTopic = new ROSLIB.Topic({
-      ros,
-      name: '/map',
-      messageType: 'nav_msgs/msg/OccupancyGrid'
-    })
-
-    mapTopic.subscribe((msg: any) => {
-      console.log('🧭 Map received from ROS')
-
-      try {
-        // Clear previous map if exists
-        if (viewer.scene.children.length > 0) {
-          viewer.scene.removeAllChildren()
-        }
-
-        // Hitung ukuran map sebenarnya dari ROS
-        const mapWidth = msg.info.width * msg.info.resolution;
-        const mapHeight = msg.info.height * msg.info.resolution;
-        
-        console.log('🗺️ Map dimensions from ROS:', { 
-          width: mapWidth, 
-          height: mapHeight,
-          resolution: msg.info.resolution,
-          cells: { width: msg.info.width, height: msg.info.height }
-        });
-
-        const grid = new ROS2D.OccupancyGrid({
-          message: msg,
-          rootObject: viewer.scene
-        })
-
-        viewer.scene.addChild(grid)
-
-        // Scale dan posisikan map agar fit di container
-        viewer.scaleToDimensions(mapWidth, mapHeight);
-        viewer.shift(msg.info.origin.position.x, msg.info.origin.position.y);
-
-        // Center the map in the container
-        centerMapInContainer();
-
-        // Force stage update
-        if (viewer.stage) {
-          viewer.stage.update();
-        }
-
-        mapLoaded.value = true;
-        console.log('🗺️ Map loaded and centered successfully in fixed container');
-
-        // Unsubscribe setelah map berhasil dimuat
-        mapTopic.unsubscribe();
-      } catch (error) {
-        console.error('❌ Error loading map:', error);
-      }
-    })
-  } catch (error) {
-    console.error('❌ Error setting up map topic:', error)
-  }
-
-  // Initialize topics dengan error handling
-  try {
-    goalTopic = new ROSLIB.Topic({
-      ros,
-      name: '/goal_pose',
-      messageType: 'geometry_msgs/msg/PoseStamped'
-    })
-
-    noGoZoneTopic = new ROSLIB.Topic({
-      ros,
-      name: '/no_go_zones',
-      messageType: 'geometry_msgs/msg/PolygonStamped'
-    })
-  } catch (error) {
-    console.error('❌ Error initializing ROS topics:', error)
-  }
-})
-
-// 🎯 Fungsi tambah goal
-const addGoal = async (screenX: number, screenY: number, rosX: number, rosY: number): Promise<void> => {
-  const newGoalId = Date.now()
-
-  console.log('🎯 Adding new goal:', { screenX, screenY, rosX, rosY })
-
-  markers.value.push({
-    id: newGoalId,
-    x: screenX,
-    y: screenY,
-    type: 'goal'
-  })
-
-  createHTMLMarker(screenX, screenY, newGoalId, 'goal', `Goal ${goalCount.value + 1}`)
-
-  const name = `Goal ${goalCount.value + 1}`
-
-  try {
-    await saveMissionToDB(name, 'goal', {
-      screen: { x: screenX, y: screenY },
-      ros: { x: rosX, y: rosY }
-    })
-  } catch (error) {
-    console.error('❌ Failed to save goal to database:', error)
-    // Rollback UI changes if save failed
-    markers.value = markers.value.filter(m => m.id !== newGoalId)
-    const markerElement = document.getElementById(`goal-${newGoalId}`)
-    if (markerElement) markerElement.remove()
-    return
-  }
-
-  // Publish to ROS dengan error handling
-  try {
-    const goalMsg = new ROSLIB.Message({
-      header: {
-        frame_id: 'map',
-        stamp: { sec: 0, nanosec: 0 }
-      },
-      pose: {
-        position: { x: rosX, y: rosY, z: 0 },
-        orientation: { x: 0, y: 0, z: 0, w: 1 }
-      }
-    })
-
-    goalTopic.publish(goalMsg)
-    console.log('📤 Goal published to ROS')
-  } catch (error) {
-    console.error('❌ Failed to publish goal to ROS:', error)
-  }
-
-  isAddingGoal.value = false
-  updateCursor()
-}
-
-// 🔄 Update posisi goal
-const updateGoalPosition = async (goalId: number, screenX: number, screenY: number, rosX: number, rosY: number): Promise<void> => {
-  console.log('✏️ Updating goal position:', { goalId, screenX, screenY, rosX, rosY })
-
-  const markerIndex = markers.value.findIndex(m => m.id === goalId)
-  if (markerIndex !== -1) {
-    markers.value[markerIndex].x = screenX
-    markers.value[markerIndex].y = screenY
-  }
-
-  updateHTMLMarkerPosition(goalId, screenX, screenY)
-
-  try {
-    await updateGoalCoordinatesInDB(goalId, {
-      screen: { x: screenX, y: screenY },
-      ros: { x: rosX, y: rosY }
-    })
-  } catch (error) {
-    console.error('❌ Failed to update goal coordinates in database:', error)
-    return
-  }
-
-  // Publish updated goal to ROS dengan error handling
-  try {
-    const goalMsg = new ROSLIB.Message({
-      header: {
-        frame_id: 'map',
-        stamp: { sec: 0, nanosec: 0 }
-      },
-      pose: {
-        position: { x: rosX, y: rosY, z: 0 },
-        orientation: { x: 0, y: 0, z: 0, w: 1 }
-      }
-    })
-
-    goalTopic.publish(goalMsg)
-    console.log('🔄 Goal position updated and published to ROS')
-  } catch (error) {
-    console.error('❌ Failed to publish updated goal to ROS:', error)
-  }
-
-  exitEditMode()
-}
-
-// 🔧 Update HTML marker position
-const updateHTMLMarkerPosition = (goalId: number, x: number, y: number): void => {
-  const markerElement = document.getElementById(`goal-${goalId}`)
-  if (markerElement) {
-    markerElement.style.left = `${x - 8}px`
-    markerElement.style.top = `${y - 8}px`
-    console.log(`📍 Marker ${goalId} moved to:`, { x, y })
-  } else {
-    console.warn(`⚠️ Marker element not found for goal ${goalId}`)
-  }
-}
-
-// Fungsi tambah titik no-go zone
-const addNoGoZonePoint = (screenX: number, screenY: number, rosX: number, rosY: number): void => {
-  console.log('📌 Adding no-go zone point:', { screenX, screenY, pointNumber: currentNoGoZonePoints.value.length + 1 })
-
-  currentNoGoZonePoints.value.push({ x: screenX, y: screenY })
-
-  createHTMLMarker(screenX, screenY, currentNoGoZonePoints.value.length, 'nogo-corner', `Corner ${currentNoGoZonePoints.value.length}`)
-
-  if (currentNoGoZonePoints.value.length === 1) {
-    tempNoGoZoneElement = document.createElement('div')
-    tempNoGoZoneElement.className = 'absolute border-2 border-dashed border-red-500 pointer-events-none z-50'
-    tempNoGoZoneElement.style.backgroundColor = 'rgba(255, 0, 0, 0.1)'
-
-    const mapElement = document.getElementById('map')
-    if (mapElement) {
-      mapElement.appendChild(tempNoGoZoneElement)
-    }
-  } else if (currentNoGoZonePoints.value.length === 2) {
-    finishNoGoZone()
-  }
-}
-
-// 🔄 Update preview no-go zone
-const updateNoGoZonePreview = (screenX: number, screenY: number): void => {
-  if (!tempNoGoZoneElement || currentNoGoZonePoints.value.length !== 1) return
-
-  const startPoint = currentNoGoZonePoints.value[0]
-  const width = Math.abs(screenX - startPoint.x)
-  const height = Math.abs(screenY - startPoint.y)
-  const left = Math.min(startPoint.x, screenX)
-  const top = Math.min(startPoint.y, screenY)
-
-  tempNoGoZoneElement.style.left = `${left}px`
-  tempNoGoZoneElement.style.top = `${top}px`
-  tempNoGoZoneElement.style.width = `${width}px`
-  tempNoGoZoneElement.style.height = `${height}px`
-}
-
-// ✅ Selesaikan no-go zone
-const finishNoGoZone = async (): Promise<void> => {
-  if (currentNoGoZonePoints.value.length !== 2) return
-
-  const newZoneId = Date.now()
-  const point1 = currentNoGoZonePoints.value[0]
-  const point2 = currentNoGoZonePoints.value[1]
-
-  const width = Math.abs(point2.x - point1.x)
-  const height = Math.abs(point2.y - point1.y)
-  const left = Math.min(point1.x, point2.x)
-  const top = Math.min(point1.y, point2.y)
-
-  console.log('✅ Finishing no-go zone:', { point1, point2, width, height })
-
-  noGoZones.value.push({
-    id: newZoneId,
-    points: currentNoGoZonePoints.value,
-    width,
-    height
-  })
-
-  createNoGoZoneElement(left, top, width, height, newZoneId)
-
-  const name = `No-Go Zone ${noGoZoneCount.value + 1}`
-
-  try {
-    // Konversi ke ROS coordinates jika viewer tersedia
-    const rosPoint1 = viewer ? viewer.scene.globalToRos(point1.x, point1.y) : { x: 0, y: 0 }
-    const rosPoint2 = viewer ? viewer.scene.globalToRos(point2.x, point2.y) : { x: 0, y: 0 }
-
-    await saveMissionToDB(name, 'no_go_zone', {
-      point1: {
-        screen: point1,
-        ros: rosPoint1
-      },
-      point2: {
-        screen: point2,
-        ros: rosPoint2
-      },
-      width,
-      height
-    })
-  } catch (error) {
-    console.error('❌ Failed to save no-go zone to database:', error)
-    // Rollback UI changes
-    noGoZones.value = noGoZones.value.filter(z => z.id !== newZoneId)
-    const zoneElement = document.getElementById(`nogo-zone-${newZoneId}`)
-    if (zoneElement) zoneElement.remove()
-    return
-  }
-
-  publishNoGoZone(point1, point2)
-
-  // Clean up temporary elements
-  currentNoGoZonePoints.value = []
-  if (tempNoGoZoneElement) {
-    tempNoGoZoneElement.remove()
-    tempNoGoZoneElement = null
-  }
-
-  // Remove corner markers
-  const mapElement = document.getElementById('map')
-  if (mapElement) {
-    const cornerMarkers = mapElement.querySelectorAll('[id^="nogo-corner-"]')
-    cornerMarkers.forEach(marker => marker.remove())
-  }
-
-  isAddingNoGoZone.value = false
-  updateCursor()
-  console.log('🚫 No-go zone completed successfully')
-}
-
-// 🚫 Publish no-go zone ke ROS
-const publishNoGoZone = (point1: Point, point2: Point): void => {
-  if (!viewer) {
-    console.error('❌ Viewer not available for publishing no-go zone')
-    return
-  }
-
-  try {
-    const rosPoint1 = viewer.scene.globalToRos(point1.x, point1.y)
-    const rosPoint2 = viewer.scene.globalToRos(point2.x, point2.y)
-
-    console.log('📤 Publishing no-go zone to ROS:', { rosPoint1, rosPoint2 })
-
-    const polygonMsg = new ROSLIB.Message({
-      header: {
-        frame_id: 'map',
-        stamp: { sec: 0, nanosec: 0 }
-      },
-      polygon: {
-        points: [
-          { x: rosPoint1.x, y: rosPoint1.y, z: 0 },
-          { x: rosPoint2.x, y: rosPoint1.y, z: 0 },
-          { x: rosPoint2.x, y: rosPoint2.y, z: 0 },
-          { x: rosPoint1.x, y: rosPoint2.y, z: 0 }
-        ]
-      }
-    })
-
-    noGoZoneTopic.publish(polygonMsg)
-    console.log('📤 No-Go Zone published to ROS')
-  } catch (error) {
-    console.error('❌ Failed to publish no-go zone to ROS:', error)
-  }
-}
-
-// 🎯 Fungsi buat marker HTML
-const createHTMLMarker = (x: number, y: number, id: number, type: 'goal' | 'nogo-corner', name?: string): void => {
-  const mapElement = document.getElementById('map')
-  if (!mapElement) {
-    console.warn('⚠️ Map element not found when creating marker')
-    return
-  }
-
-  // Cek jika marker sudah ada
-  if (document.getElementById(`${type}-${id}`)) {
-    console.log(`📍 Marker ${type}-${id} already exists, skipping...`)
-    return
-  }
-
-  const marker = document.createElement('div')
-  marker.id = `${type}-${id}`
-  marker.className = `absolute w-4 h-4 ${type === 'goal' ? 'rounded-full bg-red-500 border-2 border-white cursor-move' : 'rounded-sm bg-orange-500 border-2 border-orange-600'} z-50 transition-all duration-200 hover:scale-125`
-  marker.style.left = `${x - 8}px`
-  marker.style.top = `${y - 8}px`
-  marker.style.zIndex = '50'
-
-  const label = document.createElement('div')
-  label.textContent = type === 'goal' ? (name || `GOAL ${id}`) : `${id}`
-  label.className = 'absolute text-white font-bold text-xs bg-black bg-opacity-70 px-1 rounded left-5 -top-1 whitespace-nowrap'
-
-  marker.appendChild(label)
-  mapElement.appendChild(marker)
-
-  if (type === 'goal') {
-    marker.addEventListener('click', (e) => {
-      e.stopPropagation()
-      if (!isEditingGoal.value) {
-        startEditGoal(id)
-      }
-    })
-  }
-
-  console.log(`📍 Created ${type} marker at:`, { x, y, id })
-}
-
-// 🚫 Fungsi buat no-go zone element
-const createNoGoZoneElement = (left: number, top: number, width: number, height: number, id: number): void => {
-  const mapElement = document.getElementById('map')
-  if (!mapElement) {
-    console.warn('⚠️ Map element not found when creating no-go zone')
-    return
-  }
-
-  // Cek jika zone sudah ada
-  if (document.getElementById(`nogo-zone-${id}`)) {
-    console.log(`🚫 No-go zone ${id} already exists, skipping...`)
-    return
-  }
-
-  const zone = document.createElement('div')
-  zone.id = `nogo-zone-${id}`
-  zone.className = 'absolute border-2 border-red-500 z-40 pointer-events-none'
-  zone.style.left = `${left}px`
-  zone.style.top = `${top}px`
-  zone.style.width = `${width}px`
-  zone.style.height = `${height}px`
-  zone.style.backgroundColor = 'rgba(255, 0, 0, 0.1)'
-  zone.style.borderColor = 'rgb(239, 68, 68)'
-  zone.style.zIndex = '40'
-
-  const label = document.createElement('div')
-  label.textContent = `NO-GO ZONE ${id}`
-  label.className = 'absolute -top-6 left-0 text-red-400 font-bold text-xs bg-black bg-opacity-70 px-2 py-1 rounded'
-
-  zone.appendChild(label)
-  mapElement.appendChild(zone)
-
-  console.log(`🚫 Created no-go zone:`, { left, top, width, height, id })
-}
-
-// ✏️ Mulai edit goal
-const startEditGoal = (goalId: number): void => {
-  const mission = missions.value.find(m => m.id === goalId && m.type === 'goal')
-  if (mission) {
-    editingGoal.value = mission
-    isEditingGoal.value = true
-    updateCursor()
-
-    const markerElement = document.getElementById(`goal-${goalId}`)
-    if (markerElement) {
-      markerElement.classList.add('ring-2', 'ring-yellow-400', 'animate-pulse')
-    }
-
-    console.log('✏️ Edit mode activated for goal:', goalId)
-  }
-}
-
-// 🛑 Keluar dari edit mode
-const exitEditMode = (): void => {
-  if (editingGoal.value) {
-    const markerElement = document.getElementById(`goal-${editingGoal.value.id}`)
-    if (markerElement) {
-      markerElement.classList.remove('ring-2', 'ring-yellow-400', 'animate-pulse')
-    }
-
-    editingGoal.value = null
-    isEditingGoal.value = false
-    updateCursor()
-    console.log('🛑 Edit mode deactivated')
-  }
-}
-
-// 🔘 Aktifkan mode tambah goal
-const activateAddGoal = (): void => {
-  if (!mapLoaded.value) {
-    alert('Map belum siap! Tunggu hingga map selesai loading.')
-    return
-  }
-
-  resetModes()
-  isAddingGoal.value = true
-  updateCursor()
-  console.log('🟢 Mode tambah goal aktif')
-}
-
-// 🚫 Aktifkan mode tambah no-go zone
-const activateAddNoGoZone = (): void => {
-  if (!mapLoaded.value) {
-    alert('Map belum siap! Tunggu hingga map selesai loading.')
-    return
-  }
-
-  resetModes()
-  isAddingNoGoZone.value = true
-  updateCursor()
-  console.log('🚫 Mode tambah no-go zone aktif. Klik 2 titik untuk buat area.')
-}
-
-// 🔄 Reset semua modes
-const resetModes = (): void => {
-  isAddingGoal.value = false
-  isAddingNoGoZone.value = false
-  isEditingGoal.value = false
-  currentNoGoZonePoints.value = []
-  editingGoal.value = null
-
-  const mapElement = document.getElementById('map')
-  if (mapElement) {
-    const highlightedMarkers = mapElement.querySelectorAll('.ring-2.ring-yellow-400')
-    highlightedMarkers.forEach(marker => {
-      marker.classList.remove('ring-2', 'ring-yellow-400', 'animate-pulse')
-    })
-  }
-
-  if (tempNoGoZoneElement) {
-    tempNoGoZoneElement.remove()
-    tempNoGoZoneElement = null
-  }
-}
-
-// 🔄 Update cursor
-const updateCursor = (): void => {
-  const mapElement = document.getElementById('map')
-  if (!mapElement) return
-
-  if (isAddingGoal.value || isAddingNoGoZone.value) {
-    mapElement.style.cursor = 'crosshair'
-  } else if (isEditingGoal.value) {
-    mapElement.style.cursor = 'move'
-  } else {
-    mapElement.style.cursor = 'default'
-  }
-}
-
-// 🧹 Reset semua
-const resetAll = async (): Promise<void> => {
-  if (!confirm('Apakah Anda yakin ingin menghapus semua goals dan no-go zones?')) {
-    return
-  }
-
-  resetModes()
-  goalCount.value = 0
-  noGoZoneCount.value = 0
-  markers.value = []
-  noGoZones.value = []
-
-  const mapElement = document.getElementById('map')
-  if (mapElement) {
-    const elementsToRemove = mapElement.querySelectorAll('[id^="goal-"], [id^="nogo-"], [id^="nogo-corner-"]')
-    elementsToRemove.forEach(el => el.remove())
-  }
-
-  try {
-    for (const mission of missions.value) {
-      await deleteMissionFromDB(mission.id)
-    }
-  } catch (error) {
-    console.error('Failed to delete missions:', error)
-  }
-
-  updateCursor()
-  console.log('🧹 Semua goal dan no-go zones dihapus.')
-}
-
-// Mission Management Functions
-const editMission = (mission: Mission): void => {
-  if (mission.type === 'goal') {
-    startEditGoal(mission.id)
-  } else {
-    editingMission.value = mission
-    missionName.value = mission.name
-    showMissionModal.value = true
-  }
-}
-
-const saveMission = async (): Promise<void> => {
-  if (!editingMission.value) return
-
-  try {
-    let coordinates = editingMission.value.coordinates
-    if (typeof coordinates === 'string') {
-      coordinates = JSON.parse(coordinates)
-    }
-    await updateMissionInDB(editingMission.value.id, missionName.value, coordinates as MissionCoordinates)
-    showMissionModal.value = false
-    editingMission.value = null
-    missionName.value = ''
-  } catch (error) {
-    console.error('Failed to update mission:', error)
-  }
-}
-
-const deleteMission = async (mission: Mission): Promise<void> => {
-  if (confirm(`Are you sure you want to delete "${mission.name}"?`)) {
-    try {
-      await deleteMissionFromDB(mission.id)
-
-      const mapElement = document.getElementById('map')
-      if (mapElement) {
-        if (mission.type === 'goal') {
-          const marker = mapElement.querySelector(`#goal-${mission.id}`)
-          if (marker) marker.remove()
-        } else if (mission.type === 'no_go_zone') {
-          const zone = mapElement.querySelector(`#nogo-zone-${mission.id}`)
-          if (zone) zone.remove()
-        }
-      }
-    } catch (error) {
-      console.error('Failed to delete mission:', error)
-    }
-  }
-}
-
-const formatDate = (dateString: string): string => {
-  return new Date(dateString).toLocaleString('id-ID')
-}
-
-// Fix untuk error di template - Safe coordinate access
-const getGoalCoordinates = (mission: Mission): string => {
-  if (!mission.coordinates) return 'N/A'
-
-  try {
-    let coords = mission.coordinates
-
-    // Parse jika coordinates berupa string
-    if (typeof coords === 'string') {
-      coords = JSON.parse(coords)
-      if (typeof coords === 'string') {
-        coords = JSON.parse(coords)
-      }
-    }
-
-    // Handle berbagai kemungkinan struktur
-    if (coords && typeof coords === 'object') {
-      // Coba akses screen coordinates
-      if (coords.screen && coords.screen.x !== undefined && coords.screen.y !== undefined) {
-        return `${Math.round(coords.screen.x)}, ${Math.round(coords.screen.y)}`
-      }
-      // Coba akses direct coordinates
-      if (coords.x !== undefined && coords.y !== undefined) {
-        return `${Math.round(coords.x)}, ${Math.round(coords.y)}`
-      }
-    }
-
-    return 'N/A'
-  } catch (error) {
-    console.error('Error parsing coordinates:', error)
-    return 'N/A'
-  }
-}
-
-// Manual refresh markers (untuk debugging)
-const refreshMarkers = (): void => {
-  console.log('🔄 Manually refreshing markers...')
-  if (missions.value.length > 0 && mapLoaded.value) {
-    recreateMarkersFromMissions(missions.value)
-  }
-}
-
-// Cancel edit mode dengan ESC key
-const handleKeyPress = (event: KeyboardEvent): void => {
-  if (event.key === 'Escape' && isEditingGoal.value) {
-    exitEditMode()
-  }
-}
-
-onMounted(() => {
-  window.addEventListener('keydown', handleKeyPress)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeyPress)
-  window.removeEventListener('resize', handleResize) // Cleanup resize listener
-  if (ros) {
-    ros.close()
-  }
-  if (viewer) {
-    viewer.destroy()
-  }
-})
-</script>
-
 <template>
-  <div class="flex h-screen overflow-hidden bg-gray-900">
-    <!-- Sidebar -->
-    <aside :class="['sidebar flex flex-col shadow-xl transition-all duration-300 z-20', { 'activate': isCollapsed }]">
-      <div class="flex items-center justify-center mt-4 mb-6 p-3">
-        <img src="../assets/img/logo-polman.png" alt="Logo" class="w-20 transition-all duration-300" />
-      </div>
+  <div class="nav2-map-controller">
+    <h2>NAV2 Map Controller - With Coordinate Calibration</h2>
+    
+    <div :class="['status', connectionStatus.class]">
+      {{ connectionStatus.message }}
+    </div>
 
-      <hr class="border-gray-600 mx-3" />
-
-      <!-- Navigation -->
-      <nav class="flex flex-col gap-2 p-3 text-white flex-1 overflow-y-auto custom-scrollbar">
-        <a href="#" class="navigation flex items-center gap-3 py-3 px-4 rounded-lg w-full transition-colors">
-          <span class="material-symbols-outlined text-xl">dashboard</span>
-          <span v-if="!isCollapsed" class="font-medium">Dashboard</span>
-        </a>
-
-        <a href="#" class="navigation flex items-center gap-3 py-3 px-4 rounded-lg w-full transition-colors">
-          <span class="material-symbols-outlined text-xl">bigtop_updates</span>
-          <span v-if="!isCollapsed" class="font-medium">Connection</span>
-        </a>
-
-        <a href="#" class="navigation flex items-center gap-3 py-3 px-4 rounded-lg w-full transition-colors">
-          <span class="material-symbols-outlined text-xl">history</span>
-          <span v-if="!isCollapsed" class="font-medium">History</span>
-        </a>
-
-        <a href="#" class="navigation flex items-center gap-3 py-3 px-4 rounded-lg w-full transition-colors">
-          <span class="material-symbols-outlined text-xl">computer</span>
-          <span v-if="!isCollapsed" class="font-medium">Monitoring</span>
-        </a>
-      </nav>
-
-      <hr class="border-gray-600 mx-3" />
-
-      <div class="py-3 px-3 text-white">
-        <a href="#" class="navigation flex items-center gap-3 py-3 px-4 rounded-lg w-full transition-colors">
-          <span class="material-symbols-outlined text-xl">account_circle</span>
-          <span v-if="!isCollapsed" class="font-medium">Profile</span>
-        </a>
-      </div>
-    </aside>
-
-    <!-- Main Content - FULL SCROLLABLE -->
-    <main class="flex-1 flex flex-col min-h-0 overflow-hidden">
-      <!-- Navbar - Fixed Height -->
-      <header
-        class="h-16 bg-gray-800 shadow-lg flex items-center justify-between px-6 sticky top-0 z-10 text-white shrink-0 border-b border-gray-700">
-        <button @click="toggleSidebar"
-          class="cursor-pointer flex justify-center items-center p-2 rounded-lg sidebtn shadow-lg transition-all hover:bg-gray-700">
-          <span class="material-symbols-outlined">
-            dehaze
-          </span>
-        </button>
-
-        <div class="flex items-center gap-4">
-          <p class="font-bold text-lg">POLITEKNIK MANUFAKTUR BANDUNG</p>
-          <img src="../assets/img/logo-polman.png" alt="Logo Polman" class="w-10 h-10 object-contain" />
+    <div class="main-layout">
+      <!-- Left Panel - Map -->
+      <div class="map-section">
+        <div class="map-header">
+          <h3>🗺️ Navigation Map</h3>
+          <div class="map-controls">
+            <button @click="setAddGoalMode" :class="{ active: interactionMode === 'addGoal' }" class="mode-btn">
+              {{ interactionMode === 'addGoal' ? '✅ Add Goal' : '🎯 Add Goal' }}
+            </button>
+            <button @click="setViewMode" :class="{ active: interactionMode === 'view' }" class="mode-btn">
+              👁️ View Only
+            </button>
+            <button @click="clearAllGoals" class="clear-btn">🗑️ Clear All</button>
+          </div>
         </div>
 
-        <!-- Edit Mode Indicator -->
-        <div v-if="isEditingGoal && editingGoal"
-          class="flex items-center gap-2 bg-yellow-600 px-4 py-2 rounded-lg animate-pulse shadow-md">
-          <span class="material-symbols-outlined text-base">edit</span>
-          <span class="text-sm font-medium">Editing: {{ editingGoal.name }}</span>
-          <button @click="exitEditMode" class="text-white hover:text-gray-200 ml-2 transition-colors">
-            <span class="material-symbols-outlined text-base">close</span>
-          </button>
+        <div class="map-container">
+          <canvas 
+            ref="mapCanvas" 
+            :width="canvasSize.width" 
+            :height="canvasSize.height"
+            :style="{
+              width: canvasSize.width * 2 + 'px',
+              height: canvasSize.height * 2 + 'px',
+              cursor: interactionMode === 'addGoal' ? 'crosshair' : 'default'
+            }"
+            @click="handleMapClick"
+          ></canvas>
+          
+          <!-- Robot indicator -->
+          <div 
+            v-if="robotPose && mapInfo" 
+            class="robot-indicator"
+            :style="getRobotIndicatorStyle()"
+          >
+            <div class="robot-arrow"></div>
+            <div class="robot-dot"></div>
+          </div>
+
+          <!-- Goal indicators -->
+          <div 
+            v-for="(goal, index) in goals" 
+            :key="index"
+            class="goal-indicator"
+            :style="getGoalIndicatorStyle(goal)"
+            @click="removeGoal(index)"
+            :title="`Goal ${index + 1}: (${goal.x.toFixed(2)}, ${goal.y.toFixed(2)}) - Click to remove`"
+          >
+            <div class="goal-marker">{{ index + 1 }}</div>
+          </div>
         </div>
 
-        <div v-else class="w-32"></div>
-      </header>
+        <div class="map-info">
+          <p><strong>Mode:</strong> {{ interactionMode === 'addGoal' ? 'Click map to add goals' : 'View only' }}</p>
+          <p v-if="lastClickPosition">
+            <strong>Last Click:</strong> ({{ lastClickPosition.mapX.toFixed(2) }}, {{ lastClickPosition.mapY.toFixed(2) }})
+          </p>
+          <p v-if="missionActive">
+            <strong>Mission Progress:</strong> {{ currentMissionGoal + 1 }}/{{ goals.length }}
+          </p>
+          <p v-if="missionActive">
+            <strong>Status:</strong> {{ missionStatus }}
+          </p>
+          <p v-if="stuckCounter > 0">
+            <strong>Stuck Detection:</strong> {{ stuckCounter }}/10
+          </p>
+          <p>
+            <strong>Y Offset:</strong> {{ yOffset }}
+          </p>
+        </div>
+      </div>
 
-      <!-- Content Area - FULL SCROLLABLE WITH FIXED MAP -->
-      <section class="content flex-1 overflow-auto bg-gray-900">
-        <div class="min-h-full p-4 md:p-6">
-          <div class="max-w-full h-full flex flex-col xl:flex-row gap-4 md:gap-6">
-            <!-- Left Column - Map and Controls (SCROLLABLE) -->
-            <div class="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
-              <!-- Map Container - FIXED HEIGHT -->
-              <div class="content-border rounded-xl md:rounded-2xl flex flex-col map-fixed-container shadow-lg">
-                <!-- Map Header -->
-                <div
-                  class="flex flex-col sm:flex-row sm:items-center justify-between p-4 md:p-6 gap-4 shrink-0 border-b border-gray-700">
-                  <h2 class="text-white text-xl md:text-2xl font-bold">Robot Navigation Map</h2>
-                  <div class="flex flex-wrap gap-3">
-                    <div class="flex items-center gap-2 bg-gray-700 px-3 py-1.5 rounded-lg">
-                      <div class="w-2.5 h-2.5 rounded-full bg-red-500"></div>
-                      <span class="text-gray-300 text-sm font-medium">Goals: {{ goalCount }}</span>
-                    </div>
-                    <div class="flex items-center gap-2 bg-gray-700 px-3 py-1.5 rounded-lg">
-                      <div class="w-2.5 h-2.5 rounded-full bg-orange-500"></div>
-                      <span class="text-gray-300 text-sm font-medium">Zones: {{ noGoZoneCount }}</span>
-                    </div>
-                    <div class="flex items-center gap-2 bg-gray-700 px-3 py-1.5 rounded-lg">
-                      <div class="w-2.5 h-2.5 rounded-full" :class="mapLoaded ? 'bg-green-500' : 'bg-yellow-500'"></div>
-                      <span class="text-gray-300 text-sm font-medium">{{ mapLoaded ? 'Map Ready' : 'Loading...'
-                      }}</span>
-                    </div>
-                    <!-- Debug button -->
-                    <button @click="refreshMarkers"
-                      class="flex items-center gap-2 bg-purple-600 px-3 py-1.5 rounded-lg hover:bg-purple-700 transition-colors">
-                      <span class="material-symbols-outlined text-sm">refresh</span>
-                      <span class="text-gray-300 text-sm font-medium">Refresh Markers</span>
-                    </button>
-                  </div>
-                </div>
+      <!-- Right Panel - Controls -->
+      <div class="control-section">
+        <!-- Map Information -->
+        <div class="info-panel">
+          <h3>📊 Map Information</h3>
+          <p><strong>Size:</strong> {{ mapInfo?.width || 0 }} × {{ mapInfo?.height || 0 }} pixels</p>
+          <p><strong>Resolution:</strong> {{ (mapInfo?.resolution || 0).toFixed(4) }} m/pixel</p>
+          <p><strong>Origin:</strong> ({{ mapInfo?.origin?.x || 0 }}, {{ mapInfo?.origin?.y || 0 }})</p>
+        </div>
 
-                <!-- Map Visualization - FIXED SIZE -->
-                <div class="flex-1 p-3 md:p-4 min-h-0">
-                  <div
-                    class="w-full h-full border-2 border-gray-700 rounded-lg md:rounded-xl shadow-xl bg-gray-800 relative overflow-hidden map-inner-container">
-                    <!-- Map Container dengan fixed wrapper -->
-                    <div class="map-fixed-wrapper w-full h-full absolute inset-0">
-                      <div id="map" class="w-full h-full absolute inset-0">
-                        <div v-if="isAddingGoal || isAddingNoGoZone"
-                          class="absolute inset-0 pointer-events-none z-30 border-4 border-dashed border-yellow-400 opacity-30 rounded-lg">
-                        </div>
+        <!-- Robot Information -->
+        <div v-if="robotPose" class="robot-panel">
+          <h3>🤖 Robot Position</h3>
+          <p><strong>Position:</strong> ({{ robotPose.x.toFixed(3) }}, {{ robotPose.y.toFixed(3) }})</p>
+          <p><strong>Orientation:</strong> {{ robotPose.thetaDeg.toFixed(1) }}°</p>
+          <button @click="addCurrentPoseAsGoal" class="add-btn">Add Current Pose as Goal</button>
+        </div>
 
-                        <!-- Loading overlay -->
-                        <div v-if="!mapLoaded"
-                          class="absolute inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-10">
-                          <div class="text-center">
-                            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4">
-                            </div>
-                            <p class="text-white font-medium">Loading Map...</p>
-                            <p class="text-gray-400 text-sm mt-1">Waiting for ROS connection</p>
-                          </div>
-                        </div>
-
-                        <!-- Debug info -->
-                        <div v-if="mapLoaded"
-                          class="absolute top-2 left-2 bg-black bg-opacity-70 text-white text-xs p-2 rounded z-40">
-                          <div>Map: {{ mapLoaded ? 'Ready' : 'Loading' }}</div>
-                          <div>Markers: {{ markers.length }}</div>
-                          <div>Zones: {{ noGoZones.length }}</div>
-                          <div>Center: {{ viewer ? `x: ${Math.round(viewer.scene.x)}, y: ${Math.round(viewer.scene.y)}` : 'N/A' }}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+        <!-- Goals List -->
+        <div class="goals-panel">
+          <h3>🎯 Navigation Goals ({{ goals.length }})</h3>
+          <div v-if="goals.length === 0" class="no-goals">
+            <p>No goals set. Click on map in "Add Goal" mode to set goals.</p>
+          </div>
+          <div v-else class="goals-list">
+            <div v-for="(goal, index) in goals" :key="index" class="goal-item" :class="{ 
+              active: missionActive && currentMissionGoal === index,
+              completed: index < currentMissionGoal 
+            }">
+              <div class="goal-info">
+                <span class="goal-number">#{{ index + 1 }}</span>
+                <span class="goal-coords">({{ goal.x.toFixed(2) }}, {{ goal.y.toFixed(2) }})</span>
+                <span v-if="missionActive && currentMissionGoal === index" class="goal-status active">🟢 Active</span>
+                <span v-else-if="index < currentMissionGoal" class="goal-status completed">✅ Completed</span>
+                <span v-else class="goal-status">⏳ Pending</span>
               </div>
-
-              <!-- Control Panel & Status Section - SCROLLABLE IF NEEDED -->
-              <div class="flex-1 overflow-y-auto custom-scrollbar pr-1">
-                <div class="space-y-4 md:space-y-6">
-                  <!-- Control Panel -->
-                  <div class="content-border rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg">
-                    <h3 class="text-white text-lg md:text-xl font-bold mb-4 md:mb-6 flex items-center gap-3">
-                      <span class="material-symbols-outlined text-blue-400 text-xl md:text-2xl">touch_app</span>
-                      Map Controls
-                    </h3>
-
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-                      <button @click="activateAddGoal" class="control-btn bg-blue-600 hover:bg-blue-700"
-                        :class="{ 'active': isAddingGoal, 'opacity-50 cursor-not-allowed': !mapLoaded || isEditingGoal }"
-                        :disabled="!mapLoaded || isEditingGoal">
-                        <span class="material-symbols-outlined text-lg md:text-xl">flag</span>
-                        <div class="flex-1 text-left min-w-0">
-                          <div class="font-semibold text-sm md:text-base truncate">{{ isAddingGoal ? 'Adding Goal...' :
-                            'Add Goal' }}</div>
-                          <div class="text-blue-200 text-xs md:text-sm mt-1 opacity-90">Click on map to place goal</div>
-                        </div>
-                      </button>
-
-                      <button @click="activateAddNoGoZone" class="control-btn bg-orange-600 hover:bg-orange-700"
-                        :class="{ 'active': isAddingNoGoZone, 'opacity-50 cursor-not-allowed': !mapLoaded || isEditingGoal }"
-                        :disabled="!mapLoaded || isEditingGoal">
-                        <span class="material-symbols-outlined text-lg md:text-xl">block</span>
-                        <div class="flex-1 text-left min-w-0">
-                          <div class="font-semibold text-sm md:text-base truncate">{{ isAddingNoGoZone ? 'AddingZone...'
-                            : 'Add No-Go Zone' }}</div>
-                          <div class="text-orange-200 text-xs md:text-sm mt-1 opacity-90">Click 2 points to define area
-                          </div>
-                        </div>
-                      </button>
-
-                      <button @click="resetAll" class="control-btn bg-red-600 hover:bg-red-700"
-                        :class="{ 'opacity-50 cursor-not-allowed': isEditingGoal }" :disabled="isEditingGoal">
-                        <span class="material-symbols-outlined text-lg md:text-xl">delete</span>
-                        <div class="flex-1 text-left min-w-0">
-                          <div class="font-semibold text-sm md:text-base">Reset All</div>
-                          <div class="text-red-200 text-xs md:text-sm mt-1 opacity-90">Clear all goals and zones</div>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-
-                  <!-- Status and System Info -->
-                  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-                    <!-- Status Messages -->
-                    <div class="content-border rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg">
-                      <h3 class="text-white text-lg md:text-xl font-bold mb-4 md:mb-6 flex items-center gap-3">
-                        <span class="material-symbols-outlined text-green-400 text-xl md:text-2xl">info</span>
-                        Status Information
-                      </h3>
-
-                      <div class="space-y-3 md:space-y-4">
-                        <div v-if="!mapLoaded" class="status-message bg-yellow-900 bg-opacity-50">
-                          <span
-                            class="material-symbols-outlined text-yellow-400 animate-pulse flex-shrink-0">schedule</span>
-                          <div class="flex-1 min-w-0">
-                            <p class="font-medium text-sm md:text-base">Menunggu Map Loading</p>
-                            <p class="text-yellow-200 text-xs md:text-sm mt-1">Sedang memuat peta dari ROS...</p>
-                          </div>
-                        </div>
-
-                        <div v-if="isAddingGoal" class="status-message bg-green-900 bg-opacity-50">
-                          <span class="material-symbols-outlined text-green-400 flex-shrink-0">add_circle</span>
-                          <div class="flex-1 min-w-0">
-                            <p class="font-medium text-sm md:text-base">Mode Tambah Goal Aktif</p>
-                            <p class="text-green-200 text-xs md:text-sm mt-1">Klik di mana saja pada peta untuk menambah
-                              goal</p>
-                          </div>
-                        </div>
-
-                        <div v-if="isAddingNoGoZone" class="status-message bg-orange-900 bg-opacity-50">
-                          <span class="material-symbols-outlined text-orange-400 flex-shrink-0">add_circle</span>
-                          <div class="flex-1 min-w-0">
-                            <p class="font-medium text-sm md:text-base">Mode Tambah No-Go Zone</p>
-                            <p class="text-orange-200 text-xs md:text-sm mt-1">
-                              {{ currentNoGoZonePoints.length === 0 ? 'Klik titik pertama' :
-                                currentNoGoZonePoints.length === 1 ? 'Klik titik kedua' :
-                                  'Area selesai dibuat' }}
-                            </p>
-                            <div v-if="currentNoGoZonePoints.length === 1"
-                              class="mt-2 bg-black bg-opacity-50 px-3 py-2 rounded text-xs">
-                              <span class="text-green-400">✓ Titik 1 terpilih</span> - Klik untuk titik 2
-                            </div>
-                          </div>
-                        </div>
-
-                        <div v-if="isEditingGoal && editingGoal" class="status-message bg-yellow-900 bg-opacity-50">
-                          <span class="material-symbols-outlined text-yellow-400 flex-shrink-0">edit</span>
-                          <div class="flex-1 min-w-0">
-                            <p class="font-medium text-sm md:text-base">Mode Edit Goal Aktif</p>
-                            <p class="text-yellow-200 text-xs md:text-sm mt-1">Klik di peta untuk memindahkan goal "{{
-                              editingGoal.name }}"</p>
-                            <p class="text-yellow-300 text-xs mt-1">Tekan ESC untuk membatalkan</p>
-                          </div>
-                        </div>
-
-                        <div v-if="mapLoaded && !isAddingGoal && !isAddingNoGoZone && !isEditingGoal"
-                          class="status-message bg-gray-700">
-                          <span class="material-symbols-outlined text-gray-400 flex-shrink-0">check_circle</span>
-                          <div class="flex-1 min-w-0">
-                            <p class="font-medium text-sm md:text-base">Map Siap Digunakan</p>
-                            <p class="text-gray-300 text-xs md:text-sm mt-1">Pilih aksi di atas untuk mulai</p>
-                          </div>
-                        </div>
-
-                        <!-- Debug Info -->
-                        <div class="status-message bg-purple-900 bg-opacity-50">
-                          <span class="material-symbols-outlined text-purple-400 flex-shrink-0">bug_report</span>
-                          <div class="flex-1 min-w-0">
-                            <p class="font-medium text-sm md:text-base">Debug Information</p>
-                            <p class="text-purple-200 text-xs md:text-sm mt-1">
-                              Missions: {{ missions.length }},
-                              Goals: {{ goalCount }},
-                              Zones: {{ noGoZoneCount }}
-                            </p>
-                            <p class="text-purple-300 text-xs mt-1">
-                              Map: {{ mapLoaded ? 'Ready' : 'Loading' }},
-                              Initialized: {{ mapInitialized ? 'Yes' : 'No' }}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- System Info -->
-                    <div class="content-border rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg">
-                      <div class="flex items-center justify-between mb-4 md:mb-6">
-                        <h3 class="text-white text-lg md:text-xl font-bold flex items-center gap-3">
-                          <span class="material-symbols-outlined text-blue-400 text-xl md:text-2xl">monitor_heart</span>
-                          System Info
-                        </h3>
-                      </div>
-
-                      <div class="space-y-3 md:space-y-4">
-                        <div
-                          class="flex justify-between items-center bg-gray-700 rounded-lg p-3 md:p-4 hover:bg-gray-600 transition-colors">
-                          <div class="flex items-center gap-3">
-                            <span class="material-symbols-outlined text-lg md:text-xl"
-                              :class="systemInfo.rosConnected === 'connected' ? 'text-green-400' : 'text-red-400'">
-                              link
-                            </span>
-                            <span class="text-gray-300 text-sm md:text-base">ROS Connection</span>
-                          </div>
-                          <span class="px-3 py-1.5 md:px-4 md:py-2 rounded text-sm md:text-base font-bold" :class="systemInfo.rosConnected === 'connected'
-                            ? 'bg-green-600 text-white'
-                            : systemInfo.rosConnected === 'connecting...'
-                              ? 'bg-yellow-600 text-white'
-                              : 'bg-red-600 text-white'">
-                            {{ systemInfo.rosConnected }}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Right Panel - Mission List - SCROLLABLE -->
-            <div class="w-full xl:w-80 2xl:w-96 flex flex-col shrink-0">
-              <!-- Mission List Section -->
-              <div class="content-border rounded-xl md:rounded-2xl p-4 md:p-6 flex-1 flex flex-col min-h-0 shadow-lg">
-                <div class="flex items-center justify-between mb-4 md:mb-6 shrink-0">
-                  <h2 class="text-white text-lg md:text-xl font-bold">Mission List</h2>
-                  <span class="material-symbols-outlined text-green-400 text-xl md:text-2xl">list</span>
-                </div>
-
-                <div class="space-y-3 md:space-y-4 flex-1 overflow-y-auto custom-scrollbar pr-1">
-                  <div v-if="missions.length === 0"
-                    class="text-gray-400 text-center py-8 md:py-12 flex flex-col items-center justify-center h-full">
-                    <span class="material-symbols-outlined text-4xl md:text-5xl mb-3 md:mb-4 opacity-50">inbox</span>
-                    <p class="text-base md:text-lg mb-2">No missions yet</p>
-                    <p class="text-xs md:text-sm text-gray-500 max-w-xs">Add goals or no-go zones to see them here</p>
-                  </div>
-
-                  <div v-for="mission in missions" :key="mission.id"
-                    class="mission-item bg-gray-700 rounded-lg p-3 md:p-4 hover:bg-gray-600 transition-all duration-200 shadow-sm cursor-pointer border-l-4"
-                    :class="mission.type === 'goal' ? 'border-red-500' : 'border-orange-500'">
-                    <div class="flex items-center justify-between">
-                      <div class="flex items-center gap-3 min-w-0 flex-1">
-                        <span class="material-symbols-outlined text-lg flex-shrink-0"
-                          :class="mission.type === 'goal' ? 'text-red-400' : 'text-orange-400'">
-                          {{ mission.type === 'goal' ? 'flag' : 'block' }}
-                        </span>
-                        <div class="min-w-0 flex-1">
-                          <p class="text-white font-semibold text-sm md:text-base truncate">{{ mission.name }}</p>
-                          <p class="text-gray-400 text-xs md:text-sm mt-1">{{ formatDate(mission.created_at) }}</p>
-                          <p class="text-gray-500 text-xs mt-1 capitalize">{{ mission.type.replace('_', ' ') }}</p>
-                          <!-- Debug coordinates -->
-                          <p v-if="mission.type === 'goal'" class="text-gray-600 text-xs mt-1">
-                            Screen: {{ getGoalCoordinates(mission) }}
-                          </p>
-                        </div>
-                      </div>
-                      <div class="flex gap-1 md:gap-2 flex-shrink-0 ml-2">
-                        <button @click.stop="editMission(mission)"
-                          class="p-1.5 md:p-2 text-blue-400 hover:text-blue-300 transition-colors rounded-lg hover:bg-blue-900 hover:bg-opacity-20"
-                          :disabled="isEditingGoal && editingGoal?.id !== mission.id"
-                          :title="mission.type === 'goal' ? 'Edit goal position' : 'Edit zone name'">
-                          <span class="material-symbols-outlined text-base md:text-lg">
-                            {{ mission.type === 'goal' ? 'open_with' : 'edit' }}
-                          </span>
-                        </button>
-                        <button @click.stop="deleteMission(mission)"
-                          class="p-1.5 md:p-2 text-red-400 hover:text-red-300 transition-colors rounded-lg hover:bg-red-900 hover:bg-opacity-20"
-                          :disabled="isEditingGoal">
-                          <span class="material-symbols-outlined text-base md:text-lg">delete</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              <div class="goal-actions">
+                <button @click="sendSingleGoal(goal)" class="send-btn" title="Send this goal">➡️</button>
+                <button @click="removeGoal(index)" class="remove-btn" title="Remove goal">🗑️</button>
               </div>
             </div>
           </div>
         </div>
-      </section>
-    </main>
 
-    <!-- Edit Mission Modal -->
-    <div v-if="showMissionModal" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
-      <div class="bg-gray-800 rounded-xl md:rounded-2xl p-4 md:p-6 w-full max-w-md shadow-2xl border border-gray-700">
-        <h3 class="text-white text-lg md:text-xl font-bold mb-4">Edit Mission Name</h3>
-        <div class="space-y-4">
-          <div>
-            <label class="text-gray-300 text-sm mb-2 block">Mission Name</label>
-            <input v-model="missionName" type="text"
-              class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition-colors">
+        <!-- Mission Controls -->
+        <div class="mission-panel">
+          <h3>🚀 Mission Control</h3>
+          <div class="mission-status-indicator" :class="getMissionStatusClass()">
+            {{ missionStatus }}
           </div>
-          <div class="flex gap-3 justify-end pt-2">
-            <button @click="showMissionModal = false"
-              class="px-4 py-2 text-gray-300 hover:text-white transition-colors rounded-lg hover:bg-gray-700">
-              Cancel
+          <div class="mission-buttons">
+            <button 
+              @click="startMission" 
+              :disabled="!isConnected || goals.length === 0 || missionActive" 
+              class="mission-btn primary"
+            >
+              {{ missionActive ? `Mission Running (${currentMissionGoal + 1}/${goals.length})` : `Start Sequential Mission` }}
             </button>
-            <button @click="saveMission"
-              class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-md">
-              Save Changes
+            <button 
+              @click="sendCurrentGoal" 
+              :disabled="!isConnected || goals.length === 0 || missionActive" 
+              class="mission-btn"
+            >
+              Send Current Goal Only
             </button>
+            <button 
+              @click="manualRecovery" 
+              :disabled="!isConnected || !missionActive" 
+              class="mission-btn recovery-btn"
+            >
+              Manual Recovery
+            </button>
+            <button 
+              @click="checkGoalActivationManually" 
+              :disabled="!isConnected" 
+              class="mission-btn debug-btn"
+            >
+              Debug Status
+            </button>
+            <button 
+              @click="cancelMission" 
+              :disabled="!isConnected || !missionActive" 
+              class="cancel-btn"
+            >
+              Cancel Mission
+            </button>
+          </div>
+        </div>
+
+        <!-- Navigation Status -->
+        <div class="status-panel">
+          <h3>📈 Navigation Status</h3>
+          <div class="status-info">
+            <p><strong>State:</strong> 
+              <span :class="getStatusClass(navigationStatus.status)">
+                {{ navigationStatus.status }}
+              </span>
+            </p>
+            <p><strong>Active:</strong> {{ navigationStatus.isActive ? 'Yes' : 'No' }}</p>
+            <p><strong>Mission:</strong> {{ missionActive ? 'Running' : 'Stopped' }}</p>
+            <p><strong>Current Goal:</strong> #{{ currentMissionGoal + 1 }} of {{ goals.length }}</p>
+            <p v-if="navigationStatus.feedback">
+              <strong>Feedback:</strong> {{ navigationStatus.feedback }}
+            </p>
+            <p v-if="navigationStatus.error">
+              <strong>Error:</strong> <span class="error-text">{{ navigationStatus.error }}</span>
+            </p>
+          </div>
+        </div>
+
+        <!-- Connection & Calibration Controls -->
+        <div class="connection-panel">
+          <h3>🔗 Connection & Calibration</h3>
+          <div class="connection-controls">
+            <button @click="connectROS" :disabled="isConnected">Connect ROS</button>
+            <button @click="subscribeToMap" :disabled="!isConnected || isMapSubscribed">Load Map</button>
+            <button @click="subscribeToRobotPose" :disabled="!isConnected || isRobotSubscribed">Track Robot</button>
+            <button @click="debugCoordinateConversion" :disabled="!isConnected" class="calibration-btn">Debug Coordinates</button>
+            <button @click="autoCalibrateYOffset" :disabled="!isConnected" class="calibration-btn">Auto-Calibrate Y Offset</button>
+          </div>
+          <div class="calibration-controls">
+            <label>
+              Manual Y Offset:
+              <input v-model.number="yOffset" type="number" :disabled="!isConnected" />
+              <button @click="adjustYOffset(-1)" :disabled="!isConnected" class="adjust-btn">-</button>
+              <button @click="adjustYOffset(1)" :disabled="!isConnected" class="adjust-btn">+</button>
+            </label>
+          </div>
+          <div class="connection-settings">
+            <label>
+              ROS Bridge:
+              <input v-model="rosBridgeUrl" type="text" placeholder="ws://localhost:9090" :disabled="isConnected" />
+            </label>
           </div>
         </div>
       </div>
@@ -1603,365 +218,1479 @@ onUnmounted(() => {
   </div>
 </template>
 
+<script>
+import ROSLIB from 'roslib';
+
+export default {
+  name: 'Nav2MapController',
+  data() {
+    return {
+      ros: null,
+      isConnected: false,
+      isMapSubscribed: false,
+      isRobotSubscribed: false,
+      rosBridgeUrl: 'ws://localhost:9090',
+      
+      // Map data
+      mapInfo: null,
+      mapData: null,
+      canvasSize: { width: 100, height: 100 },
+      
+      // Interaction
+      interactionMode: 'addGoal',
+      lastClickPosition: null,
+      yOffset: 17, // Default value, akan di-calibrate
+      
+      // Goals and robot
+      goals: [],
+      robotPose: null,
+      previousRobotPose: null,
+      
+      // Mission control - SEQUENTIAL SYSTEM dengan Stuck Recovery
+      missionActive: false,
+      missionPaused: false,
+      currentMissionGoal: 0,
+      missionStatus: 'Ready',
+      isWaitingForCompletion: false,
+      stuckCounter: 0,
+      lastRobotPosition: null,
+      missionStartTime: null,
+      
+      // Navigation
+      navigationStatus: {
+        status: 'Idle',
+        isActive: false,
+        feedback: null,
+        error: null,
+        lastGoalCompleted: false
+      },
+      
+      // ROS objects
+      mapTopic: null,
+      robotPoseTopic: null,
+      goalTopic: null,
+      cancelTopic: null,
+      feedbackTopic: null,
+      resultTopic: null,
+      statusTopic: null,
+      
+      connectionStatus: {
+        message: 'Disconnected',
+        class: 'disconnected'
+      }
+    };
+  },
+  methods: {
+    connectROS() {
+      this.ros = new ROSLIB.Ros({
+        url: this.rosBridgeUrl
+      });
+
+      this.ros.on('connection', () => {
+        this.isConnected = true;
+        this.updateStatus('✅ Connected to ROS Bridge!', 'connected');
+        this.setupNav2Topics();
+        console.log('Connected to ROS Bridge');
+      });
+
+      this.ros.on('error', (error) => {
+        this.isConnected = false;
+        this.updateStatus('❌ Connection error: ' + error, 'error');
+        console.error('ROS connection error:', error);
+      });
+
+      this.ros.on('close', () => {
+        this.isConnected = false;
+        this.updateStatus('⚠️ Connection closed', 'disconnected');
+        console.log('ROS connection closed');
+      });
+    },
+
+    setupNav2Topics() {
+      console.log('Setting up NAV2 Topics...');
+      
+      // Topic untuk mengirim goal
+      this.goalTopic = new ROSLIB.Topic({
+        ros: this.ros,
+        name: '/goal_pose',
+        messageType: 'geometry_msgs/msg/PoseStamped'
+      });
+
+      // Cancel topic
+      this.cancelTopic = new ROSLIB.Topic({
+        ros: this.ros,
+        name: '/navigate_to_pose/_action/cancel_goal',
+        messageType: 'action_msgs/msg/CancelGoal'
+      });
+
+      // Subscribe to navigation feedback
+      this.feedbackTopic = new ROSLIB.Topic({
+        ros: this.ros,
+        name: '/navigate_to_pose/_action/feedback',
+        messageType: 'nav2_msgs/action/NavigateToPose_FeedbackMessage'
+      });
+
+      this.feedbackTopic.subscribe((message) => {
+        if (message && message.feedback) {
+          const feedback = message.feedback;
+          this.navigationStatus.feedback = `Distance: ${feedback.distance_remaining?.toFixed(2) || 'N/A'}m`;
+          this.navigationStatus.status = 'Navigating';
+          this.navigationStatus.isActive = true;
+        }
+      });
+
+      // Subscribe to result
+      this.resultTopic = new ROSLIB.Topic({
+        ros: this.ros,
+        name: '/navigate_to_pose/_action/result',
+        messageType: 'nav2_msgs/action/NavigateToPose_ResultMessage'
+      });
+
+      this.resultTopic.subscribe((message) => {
+        console.log('Navigation Result Received:', message);
+        if (message && message.result) {
+          this.navigationStatus.status = 'Goal Completed';
+          this.navigationStatus.isActive = false;
+          this.navigationStatus.feedback = 'Goal reached successfully';
+          this.navigationStatus.lastGoalCompleted = true;
+          this.updateStatus('✅ Goal completed!', 'connected');
+          
+          // Jika mission aktif, lanjut ke goal berikutnya
+          if (this.missionActive && this.isWaitingForCompletion) {
+            console.log('🎯 Goal completed via result topic, proceeding to next goal');
+            this.isWaitingForCompletion = false;
+            this.stuckCounter = 0;
+            this.goToNextGoal();
+          }
+        }
+      });
+
+      // Subscribe to status
+      this.statusTopic = new ROSLIB.Topic({
+        ros: this.ros,
+        name: '/navigate_to_pose/_action/status',
+        messageType: 'action_msgs/msg/GoalStatusArray'
+      });
+
+      this.statusTopic.subscribe((message) => {
+        if (message && message.status_list && message.status_list.length > 0) {
+          const status = message.status_list[0];
+          
+          switch (status.status) {
+            case 1: // ACTIVE
+              this.navigationStatus.status = 'Navigating to Goal';
+              this.navigationStatus.isActive = true;
+              this.navigationStatus.error = null;
+              this.navigationStatus.lastGoalCompleted = false;
+              this.missionStatus = 'Moving to goal...';
+              break;
+            case 4: // SUCCEEDED
+              this.navigationStatus.status = 'Goal Completed';
+              this.navigationStatus.isActive = false;
+              this.navigationStatus.lastGoalCompleted = true;
+              this.missionStatus = 'Goal reached!';
+              break;
+            case 2: // PREEMPTED
+              this.navigationStatus.status = 'Goal Cancelled';
+              this.navigationStatus.isActive = false;
+              this.missionStatus = 'Goal cancelled';
+              break;
+            case 3: // ABORTED
+              this.navigationStatus.status = 'Goal Failed';
+              this.navigationStatus.isActive = false;
+              this.navigationStatus.error = 'Navigation failed';
+              this.missionStatus = 'Goal failed';
+              if (this.missionActive) {
+                this.cancelMission();
+              }
+              break;
+            case 5: // EXECUTING
+            case 6: // EXECUTING
+              this.navigationStatus.status = 'Navigating to Goal';
+              this.navigationStatus.isActive = true;
+              this.navigationStatus.error = null;
+              this.navigationStatus.lastGoalCompleted = false;
+              this.missionStatus = 'Executing...';
+              break;
+          }
+        }
+      });
+    },
+
+    subscribeToMap() {
+      if (!this.ros) return;
+
+      if (this.mapTopic) this.mapTopic.unsubscribe();
+
+      this.mapTopic = new ROSLIB.Topic({
+        ros: this.ros,
+        name: '/map',
+        messageType: 'nav_msgs/msg/OccupancyGrid'
+      });
+
+      this.mapTopic.subscribe(this.handleMapMessage);
+      this.isMapSubscribed = true;
+      this.updateStatus('🗺️ Map subscribed', 'connected');
+    },
+
+    subscribeToRobotPose() {
+      if (!this.ros) return;
+
+      if (this.robotPoseTopic) this.robotPoseTopic.unsubscribe();
+
+      this.robotPoseTopic = new ROSLIB.Topic({
+        ros: this.ros,
+        name: '/amcl_pose',
+        messageType: 'geometry_msgs/msg/PoseWithCovarianceStamped'
+      });
+
+      this.robotPoseTopic.subscribe(this.handleRobotPoseMessage);
+      this.isRobotSubscribed = true;
+      this.updateStatus('🤖 Robot tracking started', 'connected');
+    },
+
+    handleMapMessage(mapData) {
+      console.log('Map data received');
+      this.mapData = mapData;
+      
+      const origin = mapData.info.origin.position;
+      const resolution = mapData.info.resolution;
+      const width = mapData.info.width;
+      const height = mapData.info.height;
+
+      this.mapInfo = {
+        width: width,
+        height: height,
+        resolution: resolution,
+        origin: { x: origin.x, y: origin.y }
+      };
+
+      this.canvasSize = { width: width, height: height };
+
+      this.$nextTick(() => {
+        this.renderMapToCanvas(mapData);
+      });
+    },
+
+    handleRobotPoseMessage(poseMessage) {
+      this.previousRobotPose = this.robotPose;
+
+      const pose = poseMessage.pose.pose;
+      const position = pose.position;
+      const orientation = pose.orientation;
+      
+      const theta = this.quaternionToYaw(orientation);
+      const thetaDeg = theta * (180 / Math.PI);
+
+      this.robotPose = {
+        x: position.x,
+        y: position.y,
+        z: position.z,
+        theta: theta,
+        thetaDeg: thetaDeg,
+        orientation: orientation
+      };
+    },
+
+    // COORDINATE CALIBRATION METHODS
+    debugCoordinateConversion() {
+      if (!this.mapData || !this.mapInfo) {
+        console.log('❌ No map data available');
+        return;
+      }
+
+      const origin = this.mapData.info.origin.position;
+      const resolution = this.mapData.info.resolution;
+      const width = this.mapInfo.width;
+      const height = this.mapInfo.height;
+
+      console.log('🔍 COORDINATE CONVERSION DEBUG:');
+      console.log('- Map Origin:', origin);
+      console.log('- Resolution:', resolution);
+      console.log('- Map Size:', width, 'x', height);
+      console.log('- Y Offset:', this.yOffset);
+      
+      // Test conversion untuk beberapa titik
+      const testPoints = [
+        { px: 0, py: 0 },
+        { px: Math.floor(width/2), py: Math.floor(height/2) },
+        { px: width-1, py: height-1 }
+      ];
+
+      testPoints.forEach((point, index) => {
+        const mapCoords = this.pixelToMapCoordinates(point.px, point.py);
+        console.log(`- Test Point ${index + 1}:`);
+        console.log(`  Pixel: (${point.px}, ${point.py})`);
+        console.log(`  Map: (${mapCoords?.mapX.toFixed(3)}, ${mapCoords?.mapY.toFixed(3)})`);
+      });
+
+      // Test reverse conversion
+      if (this.robotPose) {
+        const pixelCoords = this.calculatePixelCoordinates(this.robotPose.x, this.robotPose.y);
+        console.log('- Robot Position Conversion:');
+        console.log(`  World: (${this.robotPose.x.toFixed(3)}, ${this.robotPose.y.toFixed(3)})`);
+        console.log(`  Pixel: (${pixelCoords.px}, ${pixelCoords.py})`);
+        
+        // Test goal conversion jika ada goals
+        if (this.goals.length > 0) {
+          console.log('- Goal Position Conversion:');
+          this.goals.forEach((goal, index) => {
+            const goalPixels = this.calculatePixelCoordinates(goal.x, goal.y);
+            console.log(`  Goal ${index + 1}: World (${goal.x.toFixed(3)}, ${goal.y.toFixed(3)}) -> Pixel (${goalPixels.px}, ${goalPixels.py})`);
+          });
+        }
+      }
+    },
+
+    autoCalibrateYOffset() {
+      if (!this.robotPose || !this.mapData) {
+        console.log('❌ Cannot calibrate: no robot pose or map data');
+        return;
+      }
+
+      console.log('🎯 Starting Y-offset auto-calibration...');
+      
+      // Convert robot position to pixel coordinates dengan berbagai offset
+      const testOffsets = [-20, -15, -10, -5, 0, 5, 10, 15, 17, 20, 25, 30];
+      let bestOffset = this.yOffset;
+      let minError = Infinity;
+
+      testOffsets.forEach(offset => {
+        const tempYOffset = this.yOffset;
+        this.yOffset = offset;
+        
+        const pixelCoords = this.calculatePixelCoordinates(this.robotPose.x, this.robotPose.y);
+        
+        // Calculate error (distance dari center of map)
+        const errorX = Math.abs(pixelCoords.px - this.mapInfo.width / 2);
+        const errorY = Math.abs(pixelCoords.py - this.mapInfo.height / 2);
+        const totalError = errorX + errorY;
+        
+        console.log(`- Offset ${offset}: error = ${totalError.toFixed(2)}, pixel = (${pixelCoords.px}, ${pixelCoords.py})`);
+        
+        if (totalError < minError) {
+          minError = totalError;
+          bestOffset = offset;
+        }
+        
+        this.yOffset = tempYOffset; // Reset
+      });
+
+      console.log(`✅ Best Y-offset: ${bestOffset} (error: ${minError.toFixed(2)})`);
+      this.yOffset = bestOffset;
+      this.updateStatus(`🎯 Y-offset auto-calibrated to: ${bestOffset}`, 'connected');
+      
+      // Re-render map dengan offset baru
+      if (this.mapData) {
+        this.$nextTick(() => {
+          this.renderMapToCanvas(this.mapData);
+        });
+      }
+    },
+
+    adjustYOffset(delta) {
+      this.yOffset += delta;
+      console.log(`🔧 Y-offset adjusted to: ${this.yOffset}`);
+      this.updateStatus(`🔧 Y-offset manually adjusted to: ${this.yOffset}`, 'connected');
+      
+      // Re-render map jika perlu
+      if (this.mapData) {
+        this.$nextTick(() => {
+          this.renderMapToCanvas(this.mapData);
+        });
+      }
+    },
+
+    setAddGoalMode() {
+      this.interactionMode = 'addGoal';
+    },
+
+    setViewMode() {
+      this.interactionMode = 'view';
+    },
+
+    handleMapClick(event) {
+      if (this.interactionMode !== 'addGoal' || !this.mapData || !this.mapInfo) return;
+      
+      const canvas = this.$refs.mapCanvas;
+      const rect = canvas.getBoundingClientRect();
+      const scale = 2;
+      
+      const clickX = event.clientX - rect.left;
+      const clickY = event.clientY - rect.top;
+      
+      const pixelX = Math.floor(clickX / scale);
+      const pixelY = Math.floor(clickY / scale);
+      
+      const mapCoords = this.pixelToMapCoordinates(pixelX, pixelY);
+      
+      if (!mapCoords) return;
+
+      console.log(`🎯 Click: Pixel (${pixelX}, ${pixelY}) -> World (${mapCoords.mapX.toFixed(3)}, ${mapCoords.mapY.toFixed(3)})`);
+
+      this.addGoal(mapCoords.mapX, mapCoords.mapY);
+      
+      this.lastClickPosition = {
+        pixelX,
+        pixelY,
+        mapX: mapCoords.mapX,
+        mapY: mapCoords.mapY
+      };
+    },
+
+    addGoal(x, y, orientationZ = 0.0, orientationW = 1.0) {
+      this.goals.push({
+        x: x,
+        y: y,
+        z: orientationZ,
+        w: orientationW,
+        timestamp: Date.now()
+      });
+      
+      this.updateStatus(`🎯 Goal #${this.goals.length} added at (${x.toFixed(2)}, ${y.toFixed(2)})`, 'connected');
+    },
+
+    addCurrentPoseAsGoal() {
+      if (this.robotPose) {
+        this.addGoal(
+          this.robotPose.x,
+          this.robotPose.y,
+          this.robotPose.orientation.z,
+          this.robotPose.orientation.w
+        );
+      }
+    },
+
+    removeGoal(index) {
+      if (this.missionActive && index === this.currentMissionGoal) {
+        this.cancelMission();
+      }
+      this.goals.splice(index, 1);
+      this.updateStatus(`🗑️ Goal #${index + 1} removed`, 'connected');
+    },
+
+    clearAllGoals() {
+      if (this.missionActive) {
+        this.cancelMission();
+      }
+      this.goals = [];
+      this.updateStatus('🗑️ All goals cleared', 'connected');
+    },
+
+    // COORDINATE CONVERSION METHODS
+    calculatePixelCoordinates(mapX, mapY) {
+      if (!this.mapData || !this.mapInfo) return { px: 0, py: 0 };
+      
+      const origin = this.mapData.info.origin.position;
+      const resolution = this.mapData.info.resolution;
+      const width = this.mapInfo.width;
+      const height = this.mapInfo.height;
+
+      // Convert world coordinates to continuous pixel coordinates
+      const continuousX = (mapX - origin.x) / resolution;
+      const continuousY = (mapY - origin.y) / resolution;
+
+      // Convert to integer pixel coordinates
+      // Y-axis in image is inverted compared to world coordinates
+      const pixelX = Math.round(continuousX);
+      const pixelY = height - Math.round(continuousY) - 1;
+
+      // Apply Y offset correction
+      const adjustedPixelY = pixelY + this.yOffset;
+
+      return {
+        px: Math.max(0, Math.min(pixelX, width - 1)),
+        py: Math.max(0, Math.min(adjustedPixelY, height - 1))
+      };
+    },
+
+    pixelToMapCoordinates(px, py) {
+      if (!this.mapData || !this.mapInfo) return null;
+      
+      const origin = this.mapData.info.origin.position;
+      const resolution = this.mapData.info.resolution;
+      const height = this.mapInfo.height;
+      
+      // Remove Y offset first
+      const originalPy = py - this.yOffset;
+      
+      // Convert pixel coordinates to world coordinates
+      // Y-axis in image is inverted compared to world coordinates
+      const mapX = origin.x + (px * resolution);
+      const mapY = origin.y + ((height - originalPy - 1) * resolution);
+      
+      return { mapX, mapY };
+    },
+
+    // SEQUENTIAL MISSION SYSTEM dengan STUCK RECOVERY - FIXED VERSION
+    async startMission() {
+      if (!this.isConnected || this.goals.length === 0 || this.missionActive) return;
+
+      this.missionActive = true;
+      this.currentMissionGoal = 0;
+      this.missionStatus = 'Starting mission...';
+      this.navigationStatus.lastGoalCompleted = false;
+      this.stuckCounter = 0;
+      this.missionStartTime = Date.now();
+      
+      this.updateStatus(`🚀 Starting sequential mission with ${this.goals.length} goals`, 'connected');
+
+      // Start dengan goal pertama
+      await this.executeCurrentGoalSequentially();
+    },
+
+    async executeCurrentGoalSequentially() {
+      // ✅ FIX: Validasi mission state sebelum eksekusi
+      if (!this.missionActive || this.currentMissionGoal >= this.goals.length) {
+        console.log('❌ Invalid mission state, stopping');
+        this.cancelMission();
+        return;
+      }
+
+      const goal = this.goals[this.currentMissionGoal];
+      console.log(`🎯 SEQUENTIAL: Executing goal ${this.currentMissionGoal + 1}/${this.goals.length}`, goal);
+      
+      this.missionStatus = `Sending goal ${this.currentMissionGoal + 1}...`;
+      this.updateStatus(`🎯 Mission: Goal ${this.currentMissionGoal + 1}/${this.goals.length}`, 'connected');
+
+      // Reset status sebelum mengirim goal
+      this.navigationStatus = {
+        status: 'Goal Sent',
+        isActive: false,
+        feedback: null,
+        error: null,
+        lastGoalCompleted: false
+      };
+
+      // Kirim goal dan tunggu completion
+      await this.sendGoalAndWait(goal);
+    },
+
+    async sendGoalAndWait(goal) {
+      return new Promise((resolve) => {
+        console.log('📤 Sending goal and waiting for completion...');
+        
+        // Reset stuck detection variables
+        this.stuckCounter = 0;
+        this.lastRobotPosition = null;
+        let isResolved = false;
+        
+        // Kirim goal
+        this.sendSingleGoal(goal);
+        
+        // Set flag bahwa kita sedang menunggu completion
+        this.isWaitingForCompletion = true;
+        this.missionStatus = 'Waiting for goal completion...';
+
+        // ✅ FIX: Enhanced stuck detection dengan priority completion check
+        const checkStuckCondition = () => {
+          if (!this.robotPose || !this.goals[this.currentMissionGoal] || !this.isWaitingForCompletion || isResolved) return;
+          
+          const currentGoal = this.goals[this.currentMissionGoal];
+          const distanceToGoal = Math.sqrt(
+            Math.pow(this.robotPose.x - currentGoal.x, 2) +
+            Math.pow(this.robotPose.y - currentGoal.y, 2)
+          );
+
+          // ✅ FIX 1: CHECK COMPLETION FIRST - PRIORITY!
+          if (distanceToGoal < 0.15) {
+            console.log(`🎯 Goal ${this.currentMissionGoal + 1} completed during stuck check! Distance: ${distanceToGoal.toFixed(3)}m`);
+            this.navigationStatus.lastGoalCompleted = true;
+            this.isWaitingForCompletion = false;
+            this.stuckCounter = 0;
+            isResolved = true;
+            clearTimeout(timeout);
+            clearInterval(stuckCheckInterval);
+            clearInterval(positionCheckInterval);
+            setTimeout(() => {
+              this.goToNextGoal();
+              resolve(true);
+            }, 500);
+            return;
+          }
+
+          const currentPosition = { x: this.robotPose.x, y: this.robotPose.y };
+          
+          if (this.lastRobotPosition) {
+            const distanceMoved = Math.sqrt(
+              Math.pow(currentPosition.x - this.lastRobotPosition.x, 2) +
+              Math.pow(currentPosition.y - this.lastRobotPosition.y, 2)
+            );
+            
+            console.log(`🔄 Distance moved since last check: ${distanceMoved.toFixed(3)}m`);
+            
+            // ✅ FIX 2: IMPROVED STUCK DETECTION - hanya stuck jika jauh dari goal
+            if (distanceMoved < 0.03 && distanceToGoal > 0.10) {
+              this.stuckCounter++;
+              console.log(`⚠️ Stuck counter: ${this.stuckCounter}/10`);
+              
+              if (this.stuckCounter >= 10) {
+                console.log('🚨 ROBOT STUCK DETECTED! Attempting recovery...');
+                this.missionStatus = 'Robot stuck, attempting recovery...';
+                this.handleStuckRecovery(resolve);
+                return;
+              }
+            } else {
+              // Reset stuck counter jika robot bergerak atau dekat goal
+              this.stuckCounter = Math.max(0, this.stuckCounter - 1);
+            }
+          }
+          
+          this.lastRobotPosition = currentPosition;
+        };
+
+        // Timeout handler
+        const timeout = setTimeout(() => {
+          if (!isResolved && this.isWaitingForCompletion) {
+            console.log('⏰ Goal timeout, checking final position...');
+            this.checkPositionAndProceed(resolve, true);
+          }
+        }, 45000); // 45 detik timeout
+
+        // Completion handler dari result topic
+        const resultHandler = (message) => {
+          if (!isResolved && this.isWaitingForCompletion && message && message.result) {
+            console.log('✅ Goal completed via result topic');
+            isResolved = true;
+            clearTimeout(timeout);
+            clearInterval(stuckCheckInterval);
+            clearInterval(positionCheckInterval);
+            this.isWaitingForCompletion = false;
+            this.stuckCounter = 0;
+            this.resultTopic.unsubscribe(resultHandler);
+            resolve(true);
+          }
+        };
+
+        // Listen untuk result
+        this.resultTopic.subscribe(resultHandler);
+
+        // Stuck detection interval (setiap 2 detik)
+        const stuckCheckInterval = setInterval(() => {
+          if (!this.isWaitingForCompletion || isResolved) {
+            clearInterval(stuckCheckInterval);
+            return;
+          }
+          checkStuckCondition();
+        }, 2000);
+
+        // Position check interval (setiap 3 detik)
+        const positionCheckInterval = setInterval(() => {
+          if (!this.isWaitingForCompletion || isResolved) {
+            clearInterval(positionCheckInterval);
+            return;
+          }
+          this.checkPositionAndProceed(resolve, false);
+        }, 3000);
+
+        // Initial stuck check setup
+        setTimeout(() => {
+          if (this.robotPose && this.isWaitingForCompletion && !isResolved) {
+            this.lastRobotPosition = { x: this.robotPose.x, y: this.robotPose.y };
+          }
+        }, 1000);
+      });
+    },
+
+    async handleStuckRecovery(resolve) {
+      console.log('🔄 Starting stuck recovery procedure...');
+      this.missionStatus = 'Robot stuck, starting recovery...';
+      
+      // ✅ FIX: Validasi mission state
+      if (!this.missionActive || this.currentMissionGoal >= this.goals.length) {
+        console.log('❌ Invalid mission state in recovery');
+        if (resolve) resolve(false);
+        return;
+      }
+      
+      const currentGoal = this.goals[this.currentMissionGoal];
+      console.log('🔄 Recovery for CURRENT goal:', currentGoal);
+      
+      // Analyze stuck position vs goal position
+      if (this.robotPose) {
+        const dx = currentGoal.x - this.robotPose.x;
+        const dy = currentGoal.y - this.robotPose.y;
+        
+        console.log(`📊 Stuck Analysis:`);
+        console.log(`- Robot: (${this.robotPose.x.toFixed(3)}, ${this.robotPose.y.toFixed(3)})`);
+        console.log(`- Goal: (${currentGoal.x.toFixed(3)}, ${currentGoal.y.toFixed(3)})`);
+        console.log(`- Delta: (${dx.toFixed(3)}, ${dy.toFixed(3)})`);
+        console.log(`- Distance: ${Math.sqrt(dx*dx + dy*dy).toFixed(3)}m`);
+      }
+      
+      // 1. Cancel current goal
+      this.cancelCurrentGoal();
+      await new Promise(res => setTimeout(res, 2000));
+      
+      // 2. Check if we're close enough to current goal
+      const isCloseEnough = this.checkIfCloseToCurrentGoal();
+      
+      if (isCloseEnough) {
+        console.log('🤖 Close enough to goal despite stuck, proceeding...');
+        this.missionStatus = 'Close enough, proceeding...';
+        this.navigationStatus.lastGoalCompleted = true;
+        this.navigationStatus.status = 'Goal Completed';
+        this.isWaitingForCompletion = false;
+        this.stuckCounter = 0;
+        
+        if (resolve) {
+          resolve(true);
+        }
+        
+        if (this.missionActive) {
+          setTimeout(() => {
+            this.goToNextGoal();
+          }, 1000);
+        }
+        return;
+      }
+      
+      // 3. If not close, try to send goal again - ✅ FIX: Gunakan current goal yang benar
+      console.log('🔄 Retrying CURRENT goal...');
+      this.missionStatus = 'Retrying current goal...';
+      await new Promise(res => setTimeout(res, 3000));
+      
+      // ✅ FIX: Retry CURRENT goal, bukan goal lama
+      this.sendSingleGoal(currentGoal);
+      
+      // Give it some time to work
+      await new Promise(res => setTimeout(res, 10000));
+      
+      // Check position again
+      const isCloseAfterRetry = this.checkIfCloseToCurrentGoal();
+      
+      if (isCloseAfterRetry) {
+        console.log('✅ Recovery successful, proceeding...');
+        this.missionStatus = 'Recovery successful!';
+        this.navigationStatus.lastGoalCompleted = true;
+        this.navigationStatus.status = 'Goal Completed';
+        this.isWaitingForCompletion = false;
+        this.stuckCounter = 0;
+        
+        if (resolve) {
+          resolve(true);
+        }
+        
+        if (this.missionActive) {
+          setTimeout(() => {
+            this.goToNextGoal();
+          }, 1000);
+        }
+      } else {
+        console.log('❌ Recovery failed, skipping to next goal...');
+        this.missionStatus = 'Recovery failed, skipping goal...';
+        this.updateStatus('⚠️ Goal skipped due to stuck condition', 'error');
+        
+        // Skip to next goal
+        this.isWaitingForCompletion = false;
+        this.stuckCounter = 0;
+        
+        if (resolve) {
+          resolve(false);
+        }
+        
+        if (this.missionActive) {
+          setTimeout(() => {
+            this.goToNextGoal();
+          }, 2000);
+        }
+      }
+    },
+
+    cancelCurrentGoal() {
+      console.log('⏹️ Cancelling current goal...');
+      
+      if (this.cancelTopic) {
+        const cancelMessage = new ROSLIB.Message({
+          goal_info: {
+            goal_id: {
+              stamp: {
+                sec: Math.floor(Date.now() / 1000),
+                nanosec: 0
+              },
+              id: ''
+            }
+          }
+        });
+        this.cancelTopic.publish(cancelMessage);
+      }
+    },
+
+    checkIfCloseToCurrentGoal() {
+      if (!this.robotPose || !this.goals[this.currentMissionGoal]) return false;
+
+      const currentGoal = this.goals[this.currentMissionGoal];
+      const distanceToGoal = Math.sqrt(
+        Math.pow(this.robotPose.x - currentGoal.x, 2) +
+        Math.pow(this.robotPose.y - currentGoal.y, 2)
+      );
+
+      console.log(`📏 Distance to goal during recovery: ${distanceToGoal.toFixed(3)}m`);
+      
+      return distanceToGoal < 0.25; // 25cm threshold untuk recovery
+    },
+
+    checkPositionAndProceed(resolve, isTimeout = false) {
+      if (!this.robotPose || !this.goals[this.currentMissionGoal] || !this.isWaitingForCompletion) return;
+
+      const currentGoal = this.goals[this.currentMissionGoal];
+      const distanceToGoal = Math.sqrt(
+        Math.pow(this.robotPose.x - currentGoal.x, 2) +
+        Math.pow(this.robotPose.y - currentGoal.y, 2)
+      );
+
+      console.log(`📏 Distance to goal: ${distanceToGoal.toFixed(3)}m`);
+
+      // Adjust threshold berdasarkan kondisi
+      const threshold = isTimeout ? 0.20 : 0.10; // ✅ DIKETATKAN: dari 0.25/0.15
+      
+      if (distanceToGoal < threshold) {
+        console.log(`🎯 Close enough to goal (${isTimeout ? 'timeout' : 'normal'}), considering completed`);
+        this.navigationStatus.lastGoalCompleted = true;
+        this.navigationStatus.status = 'Goal Completed';
+        this.navigationStatus.isActive = false;
+        this.isWaitingForCompletion = false;
+        this.stuckCounter = 0;
+        
+        if (resolve) {
+          resolve(true);
+        }
+        
+        // Jika mission aktif, lanjut ke goal berikutnya
+        if (this.missionActive) {
+          setTimeout(() => {
+            this.goToNextGoal();
+          }, 1000);
+        }
+      }
+    },
+
+    sendSingleGoal(goal) {
+      if (!this.isConnected || !goal) {
+        this.updateStatus('❌ Cannot send goal - not connected', 'error');
+        return;
+      }
+
+      console.log('🎯 Sending single goal:', goal);
+
+      const goalMessage = new ROSLIB.Message({
+        header: {
+          stamp: {
+            sec: Math.floor(Date.now() / 1000),
+            nanosec: 0
+          },
+          frame_id: 'map'
+        },
+        pose: {
+          position: {
+            x: goal.x,
+            y: goal.y,
+            z: 0.0
+          },
+          orientation: {
+            x: 0.0,
+            y: 0.0,
+            z: goal.z || 0.0,
+            w: goal.w || 1.0
+          }
+        }
+      });
+
+      try {
+        this.goalTopic.publish(goalMessage);
+        console.log('📤 Goal sent to /goal_pose');
+        this.updateStatus('🚀 Goal sent to navigation system', 'connected');
+      } catch (error) {
+        console.error('Error sending goal:', error);
+        this.navigationStatus.status = 'Error';
+        this.navigationStatus.error = error.message;
+        this.updateStatus('❌ Failed to send goal', 'error');
+      }
+    },
+
+    sendCurrentGoal() {
+      if (!this.isConnected || this.goals.length === 0) return;
+      
+      const goal = this.goals[this.currentMissionGoal];
+      this.sendSingleGoal(goal);
+    },
+
+    manualRecovery() {
+      if (!this.missionActive) return;
+      
+      console.log('🔄 Manual recovery triggered');
+      this.missionStatus = 'Manual recovery...';
+      this.handleStuckRecovery(null);
+    },
+
+    goToNextGoal() {
+      console.log(`🔄 BEFORE goToNextGoal: currentMissionGoal = ${this.currentMissionGoal}, total goals = ${this.goals.length}`);
+      
+      this.currentMissionGoal++;
+      console.log(`🔄 AFTER goToNextGoal: currentMissionGoal = ${this.currentMissionGoal}, total goals = ${this.goals.length}`);
+      
+      if (this.currentMissionGoal < this.goals.length) {
+        const nextGoal = this.goals[this.currentMissionGoal];
+        console.log(`🎯 Next goal details:`, nextGoal);
+        console.log(`🔄 Moving to next goal: ${this.currentMissionGoal + 1}/${this.goals.length}`);
+        this.missionStatus = `Moving to goal ${this.currentMissionGoal + 1}...`;
+        
+        // Tunggu sebentar sebelum goal berikutnya
+        setTimeout(() => {
+          this.executeCurrentGoalSequentially();
+        }, 2000);
+      } else {
+        // Mission completed
+        this.missionActive = false;
+        const totalTime = ((Date.now() - this.missionStartTime) / 1000).toFixed(1);
+        console.log(`🎉 MISSION COMPLETED SUCCESSFULLY!`);
+        console.log(`📈 Summary: ${this.goals.length} goals completed in ${totalTime}s`);
+        
+        this.currentMissionGoal = 0;
+        this.missionStatus = 'Mission Completed';
+        this.navigationStatus.status = 'Mission Completed';
+        this.navigationStatus.isActive = false;
+        this.navigationStatus.feedback = `All ${this.goals.length} goals completed in ${totalTime}s`;
+        this.updateStatus(`🎉 Mission completed! ${this.goals.length} goals reached in ${totalTime}s!`, 'connected');
+      }
+    },
+
+    cancelMission() {
+      console.log('⏹️ Cancelling mission');
+      
+      // Send cancel command
+      this.cancelCurrentGoal();
+
+      this.missionActive = false;
+      this.isWaitingForCompletion = false;
+      this.stuckCounter = 0;
+      this.missionStatus = 'Mission Cancelled';
+      this.navigationStatus.status = 'Mission Cancelled';
+      this.navigationStatus.feedback = 'Mission cancelled by user';
+      this.updateStatus('⏹️ Mission cancelled', 'connected');
+    },
+
+    // Method untuk manual goal activation check:
+    checkGoalActivationManually() {
+      console.log('🔍 Manual status check:');
+      console.log('- Mission Active:', this.missionActive);
+      console.log('- Current Goal:', this.currentMissionGoal + 1);
+      console.log('- Total Goals:', this.goals.length);
+      console.log('- Waiting for Completion:', this.isWaitingForCompletion);
+      console.log('- Stuck Counter:', this.stuckCounter);
+      console.log('- Navigation Status:', this.navigationStatus);
+      console.log('- Robot Pose:', this.robotPose);
+      console.log('- Y Offset:', this.yOffset);
+      
+      if (this.robotPose && this.goals[this.currentMissionGoal]) {
+        const currentGoal = this.goals[this.currentMissionGoal];
+        const distanceToGoal = Math.sqrt(
+          Math.pow(this.robotPose.x - currentGoal.x, 2) +
+          Math.pow(this.robotPose.y - currentGoal.y, 2)
+        );
+        console.log('- Distance to current goal:', distanceToGoal.toFixed(3), 'meters');
+        
+        // Juga tampilkan konversi pixel
+        const robotPixels = this.calculatePixelCoordinates(this.robotPose.x, this.robotPose.y);
+        const goalPixels = this.calculatePixelCoordinates(currentGoal.x, currentGoal.y);
+        console.log('- Robot Pixel:', `(${robotPixels.px}, ${robotPixels.py})`);
+        console.log('- Goal Pixel:', `(${goalPixels.px}, ${goalPixels.py})`);
+      }
+      
+      this.updateStatus('🔍 Debug: Check console for details', 'connected');
+    },
+
+    getMissionStatusClass() {
+      if (this.missionStatus.includes('stuck') || this.missionStatus.includes('failed')) {
+        return 'mission-status-error';
+      } else if (this.missionStatus.includes('recovery') || this.missionStatus.includes('Retrying')) {
+        return 'mission-status-recovery';
+      } else if (this.missionStatus.includes('Waiting') || this.missionStatus.includes('Moving')) {
+        return 'mission-status-warning';
+      } else if (this.missionStatus.includes('Completed')) {
+        return 'mission-status-success';
+      } else {
+        return 'mission-status-normal';
+      }
+    },
+
+    renderMapToCanvas(mapData) {
+      const canvas = this.$refs.mapCanvas;
+      if (!canvas) return;
+
+      const ctx = canvas.getContext('2d');
+      const width = mapData.info.width;
+      const height = mapData.info.height;
+      const data = mapData.data;
+
+      ctx.clearRect(0, 0, width, height);
+
+      const imageData = ctx.createImageData(width, height);
+
+      for (let i = 0; i < data.length; i++) {
+        const pixelIndex = i * 4;
+        const cellValue = data[i];
+        let r, g, b;
+
+        if (cellValue === -1) {
+          r = g = b = 128;
+        } else if (cellValue === 0) {
+          r = g = b = 255;
+        } else if (cellValue === 100) {
+          r = g = b = 0;
+        } else {
+          r = 255; g = 200; b = 0;
+        }
+
+        imageData.data[pixelIndex] = r;
+        imageData.data[pixelIndex + 1] = g;
+        imageData.data[pixelIndex + 2] = b;
+        imageData.data[pixelIndex + 3] = 255;
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+    },
+
+    getRobotIndicatorStyle() {
+      if (!this.robotPose || !this.mapData) return {};
+      
+      const pixelCoords = this.calculatePixelCoordinates(this.robotPose.x, this.robotPose.y);
+      const scale = 2;
+      
+      return {
+        left: (pixelCoords.px * scale - 10) + 'px',
+        top: (pixelCoords.py * scale - 15) + 'px',
+        transform: `rotate(${this.robotPose.thetaDeg}deg)`
+      };
+    },
+
+    getGoalIndicatorStyle(goal) {
+      const pixelCoords = this.calculatePixelCoordinates(goal.x, goal.y);
+      const scale = 2;
+      
+      return {
+        left: (pixelCoords.px * scale - 15) + 'px',
+        top: (pixelCoords.py * scale - 15) + 'px'
+      };
+    },
+
+    getStatusClass(status) {
+      const statusClasses = {
+        'Idle': 'status-idle',
+        'Goal Sent': 'status-active',
+        'Navigating to Goal': 'status-active',
+        'Mission Started': 'status-active',
+        'Goal Completed': 'status-success',
+        'Mission Completed': 'status-success',
+        'Goal Cancelled': 'status-error',
+        'Mission Cancelled': 'status-error',
+        'Goal Failed': 'status-error',
+        'Timeout': 'status-error',
+        'Error': 'status-error'
+      };
+      return statusClasses[status] || 'status-idle';
+    },
+
+    quaternionToYaw(quat) {
+      const x = quat.x;
+      const y = quat.y;
+      const z = quat.z;
+      const w = quat.w;
+      const siny_cosp = 2 * (w * z + x * y);
+      const cosy_cosp = 1 - 2 * (y * y + z * z);
+      return Math.atan2(siny_cosp, cosy_cosp);
+    },
+
+    updateStatus(message, statusClass) {
+      this.connectionStatus = {
+        message,
+        class: statusClass
+      };
+    }
+  },
+  mounted() {
+    if (this.mapData) {
+      this.renderMapToCanvas(this.mapData);
+    }
+  }
+};
+</script>
+
 <style scoped>
-/* CSS dengan fixed canvas dan no overflow */
-.sidebar {
-  background: #1f2937;
-  width: 16rem;
-  box-sizing: border-box;
-  flex-shrink: 0;
-  border-right: 1px solid #374151;
+/* Previous styles remain the same, dengan beberapa tambahan */
+.goal-item.completed {
+  background-color: #d4edda;
+  border-color: #c3e6cb;
 }
 
-.sidebar.activate {
-  width: 5rem;
+.goal-item.active {
+  background-color: #fff3cd;
+  border-color: #ffeaa7;
 }
 
-.navigation {
-  transition: all 0.2s ease;
+.goal-status.active {
+  color: #28a745;
+  font-weight: bold;
 }
 
-.navigation:hover,
-.navigation.active {
-  background: #4b5563;
+.goal-status.completed {
+  color: #6c757d;
 }
 
-header {
-  background: #1f2937;
+.mission-status {
+  font-weight: bold;
+  margin-top: 10px;
+  padding: 5px;
+  border-radius: 3px;
 }
 
-.sidebtn {
-  background: #374151;
+/* Previous styles continue... */
+.nav2-map-controller {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: Arial, sans-serif;
 }
 
-.content {
-  background: #111827;
+.status {
+  padding: 10px;
+  border-radius: 5px;
+  margin: 10px 0;
+  font-weight: bold;
 }
 
-.content-border {
-  background: #1f2937;
-  border: 1px solid #374151;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+.status.connected { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+.status.error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+.status.disconnected { background-color: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+
+.main-layout {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  gap: 20px;
+  margin-top: 20px;
 }
 
-/* FIXED MAP CONTAINER STYLES */
-.map-fixed-container {
-  height: 70vh; /* Fixed height */
-  min-height: 500px;
-  max-height: 800px;
+.map-section {
+  background-color: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
 }
 
-.map-inner-container {
-  position: relative;
-  height: 100%;
+.map-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
 }
 
-.map-fixed-wrapper {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+.map-header h3 {
+  margin: 0;
+  color: #2c3e50;
 }
 
-#map {
-  background: #111827;
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  overflow: hidden;
+.map-controls {
+  display: flex;
+  gap: 10px;
 }
 
-/* Ensure ROS2D canvas fits perfectly */
-#map canvas {
-  position: absolute !important;
-  top: 0 !important;
-  left: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  display: block;
+.mode-btn {
+  padding: 8px 12px;
+  border: 2px solid #007bff;
+  background-color: white;
+  color: #007bff;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
 }
 
-/* Marker positioning dalam fixed container */
-[id^="goal-"], 
-[id^="nogo-zone-"], 
-[id^="nogo-corner-"] {
-  position: absolute;
-  pointer-events: auto;
-  transform: translate(-50%, -50%); /* Center markers */
-  z-index: 50;
+.mode-btn.active {
+  background-color: #007bff;
+  color: white;
 }
 
-/* Control buttons */
-.control-btn {
-  padding: 16px;
-  border-radius: 10px;
-  font-weight: 600;
+.clear-btn {
+  padding: 8px 12px;
+  background-color: #dc3545;
   color: white;
   border: none;
+  border-radius: 5px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  text-align: left;
+  font-size: 12px;
+}
+
+.map-container {
   position: relative;
-  overflow: hidden;
-  height: 100%;
-  min-height: 80px;
+  display: inline-block;
+  margin-bottom: 15px;
 }
 
-.control-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+.map-container canvas {
+  border: 2px solid #333;
+  background-color: #666;
+  image-rendering: pixelated;
+  max-width: 100%;
+  height: auto;
 }
 
-.control-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none !important;
-}
-
-.control-btn.active {
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.4);
-  transform: translateY(-1px);
-}
-
-.status-message {
-  padding: 14px;
-  border-radius: 10px;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  font-size: 14px;
-  color: #e5e7eb;
-  border-left: 4px solid;
+.robot-indicator {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+  z-index: 10;
   transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
 }
 
-.status-message:hover {
-  transform: translateX(2px);
+.robot-dot {
+  width: 12px;
+  height: 12px;
+  background-color: #ff4444;
+  border: 2px solid #cc0000;
+  border-radius: 50%;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 
-.status-message.bg-yellow-900 {
-  border-left-color: #f59e0b;
+.robot-arrow {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 8px solid #ff0000;
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
-.status-message.bg-green-900 {
-  border-left-color: #10b981;
+.goal-indicator {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  z-index: 5;
 }
 
-.status-message.bg-orange-900 {
-  border-left-color: #f97316;
+.goal-marker {
+  width: 30px;
+  height: 30px;
+  background-color: #28a745;
+  border: 3px solid #1e7e34;
+  border-radius: 50%;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 12px;
+  transition: transform 0.2s;
 }
 
-.mission-item {
-  transition: all 0.2s ease;
+.goal-indicator:hover .goal-marker {
+  transform: scale(1.2);
+  background-color: #20c997;
+}
+
+.map-info {
+  background-color: white;
+  padding: 10px;
+  border-radius: 5px;
+  border: 1px solid #dee2e6;
+  font-size: 14px;
+}
+
+.control-section {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.info-panel, .robot-panel, .goals-panel, .mission-panel, .status-panel, .connection-panel {
+  background-color: #f8f9fa;
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+}
+
+.info-panel h3, .robot-panel h3, .goals-panel h3, .mission-panel h3, .status-panel h3, .connection-panel h3 {
+  margin-top: 0;
+  color: #2c3e50;
+  font-size: 16px;
+}
+
+.robot-panel button {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.add-btn {
+  background-color: #28a745;
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 4px;
   cursor: pointer;
 }
 
-.mission-item:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+.goals-list {
+  max-height: 200px;
+  overflow-y: auto;
 }
 
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: #374151;
-  border-radius: 3px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #6b7280;
-  border-radius: 3px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
-}
-
-.content::-webkit-scrollbar {
-  width: 8px;
-}
-
-.content::-webkit-scrollbar-track {
-  background: #1f2937;
-}
-
-.content::-webkit-scrollbar-thumb {
-  background: #4b5563;
+.goal-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  margin: 5px 0;
+  background-color: white;
   border-radius: 4px;
+  border: 1px solid #dee2e6;
 }
 
-.content::-webkit-scrollbar-thumb:hover {
-  background: #6b7280;
+.goal-info {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
-.animate-pulse {
-  animation: pulse 2s infinite;
+.goal-number {
+  font-weight: bold;
+  color: #28a745;
 }
 
-@keyframes pulse {
-
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.7;
-  }
+.goal-coords {
+  font-family: monospace;
+  font-size: 12px;
 }
 
-.ring-2 {
-  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
-  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
-  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+.goal-actions {
+  display: flex;
+  gap: 5px;
 }
 
-.ring-yellow-400 {
-  --tw-ring-color: rgb(250 204 21);
+.send-btn, .remove-btn {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
 }
 
-.cursor-move {
-  cursor: move;
+.send-btn {
+  background-color: #007bff;
+  color: white;
+}
+
+.remove-btn {
+  background-color: #dc3545;
+  color: white;
+}
+
+.no-goals {
+  text-align: center;
+  color: #6c757d;
+  font-style: italic;
+  padding: 20px;
+}
+
+.mission-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mission-btn {
+  padding: 10px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.mission-btn.primary {
+  background-color: #ffc107;
+  color: #212529;
+}
+
+.mission-btn:not(.primary) {
+  background-color: #17a2b8;
+  color: white;
+}
+
+.mission-btn.debug-btn {
+  background-color: #6f42c1;
+  color: white;
+}
+
+.cancel-btn {
+  background-color: #dc3545;
+  color: white;
+  padding: 10px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.status-info {
+  background-color: white;
+  padding: 10px;
+  border-radius: 5px;
+  border: 1px solid #dee2e6;
+  font-size: 14px;
+}
+
+.status-idle { color: #6c757d; }
+.status-active { color: #007bff; font-weight: bold; }
+.status-success { color: #28a745; font-weight: bold; }
+.status-error { color: #dc3545; font-weight: bold; }
+
+.error-text {
+  color: #dc3545;
+  font-weight: bold;
+}
+
+.connection-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.connection-controls button {
+  flex: 1;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background-color: #007bff;
+  color: white;
+}
+
+.connection-settings label {
+  display: flex;
+  flex-direction: column;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.connection-settings input {
+  padding: 6px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  margin-top: 5px;
 }
 
 button:disabled {
-  opacity: 0.5;
+  background-color: #6c757d !important;
   cursor: not-allowed;
+  opacity: 0.6;
 }
 
-button:disabled:hover {
-  transform: none;
-}
-
-.min-h-0 {
-  min-height: 0;
-}
-
-.min-w-0 {
-  min-width: 0;
-}
-
-.shrink-0 {
-  flex-shrink: 0;
-}
-
-.flex-1 {
-  flex: 1 1 0%;
-}
-
-.overflow-auto {
-  overflow: auto;
-}
-
-.min-h-full {
-  min-height: 100%;
-}
-
-/* Responsive fixed heights */
-@media (max-height: 700px) {
-  .map-fixed-container {
-    height: 60vh;
-    min-height: 400px;
-  }
-}
-
-@media (min-height: 900px) {
-  .map-fixed-container {
-    height: 75vh;
-  }
-}
-
-@media (min-height: 1200px) {
-  .map-fixed-container {
-    height: 80vh;
-  }
-}
-
-@media (max-width: 768px) {
-  .map-fixed-container {
-    height: 50vh;
-    min-height: 300px;
-  }
-  
-  .sidebar {
-    width: 100%;
-    height: auto;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    z-index: 40;
-  }
-
-  .sidebar.activate {
-    width: 100%;
-  }
-
-  main {
-    margin-bottom: 80px;
-  }
-
-  .content {
-    padding: 0.75rem;
-  }
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.animate-spin {
-  animation: spin 1s linear infinite;
-}
-
-.shadow-lg {
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-}
-
-.shadow-xl {
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-}
-
-html {
-  scroll-behavior: smooth;
-}
-
-.h-screen {
-  height: 100vh;
-}
-
-/* Ensure no overflow in any scenario */
-* {
-  box-sizing: border-box;
-}
-
-#map * {
-  max-width: none;
-  max-height: none;
-}
-
-/* Fix untuk CreateJS stage */
-.ros2d-viewer {
-  width: 100% !important;
-  height: 100% !important;
-  position: relative !important;
-}
-
-/* Prevent text selection on map */
-#map {
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-  user-select: none;
+button:not(:disabled):hover {
+  opacity: 0.9;
 }
 </style>

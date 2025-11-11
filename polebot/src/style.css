@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+:root {
+  --black-sidebar: #2A2A2A;
+  --black-header-btn: #403C3C;
+  --black-header: #383838;
+  --main-bg: #B6B6B6;
+}
+
 body {
   margin: 0;
   display: flex;
