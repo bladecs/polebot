@@ -8,4 +8,10 @@ export default defineConfig({
     vue(),
     tailwindcss()
   ],
+  server: {
+    allowedHosts: [
+      'flexional-lorie-consanguineously.ngrok-free.dev'
+    ],
+    host: true
+  }
 })
