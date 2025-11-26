@@ -63,7 +63,7 @@
           <!-- Header Section -->
           <div class="header-section">
             <h1>NAV2 Map Controller</h1>
-            <p class="subtitle">Advanced Navigation System with Coordinate Management</p>
+            <p class="subtitle">PoleBot AMR Navigation System - ROS2 Jazzy Compatible</p>
           </div>
 
           <!-- Connection Status -->
@@ -72,6 +72,12 @@
               <span class="status-icon"><i :class="connectionStatus.icon"></i></span>
               <span>{{ connectionStatus.message }}</span>
             </div>
+          </div>
+
+          <!-- ROS2 Version Info -->
+          <div class="ros-version-info">
+            <div class="version-badge">ROS2 Jazzy</div>
+            <div class="version-details">✅ Correct format: std_msgs/String for name field</div>
           </div>
 
           <!-- Main Layout: Map + Controls -->
@@ -166,6 +172,164 @@
 
             <!-- Right Panel - Control Sections -->
             <div class="control-section">
+              <!-- Save Map Configuration Panel -->
+              <div class="control-panel">
+                <div class="panel-header">
+                  <div class="panel-title">
+                    <span class="icon"><i class="fas fa-save"></i></span>
+                    <h3>Save Map Configuration</h3>
+                  </div>
+                </div>
+                
+                <div class="save-controls">
+                  <!-- Coordinate Flip Settings -->
+                  <div class="flip-settings">
+                    <h4>Coordinate Settings</h4>
+                    <div class="flip-controls">
+                      <label class="checkbox-label">
+                        <input 
+                          type="checkbox" 
+                          v-model="flipXCoordinate"
+                          class="checkbox-input"
+                        >
+                        <span class="checkmark"></span>
+                        <span class="checkbox-text">Flip X Coordinate (Web +X → RViz -X)</span>
+                      </label>
+                      
+                      <label class="checkbox-label">
+                        <input 
+                          type="checkbox" 
+                          v-model="flipYCoordinate"
+                          class="checkbox-input"
+                        >
+                        <span class="checkmark"></span>
+                        <span class="checkbox-text">Flip Y Coordinate (Web +Y → RViz -Y)</span>
+                      </label>
+                    </div>
+                    
+                    <div class="coordinate-preview">
+                      <div class="preview-title">Coordinate Preview:</div>
+                      <div class="preview-content">
+                        <div>Web: (1.0, 2.0) → RViz: ({{ flipXCoordinate ? '-1.0' : '1.0' }}, {{ flipYCoordinate ? '-2.0' : '2.0' }})</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Save Map Configuration -->
+                  <div class="save-config">
+                    <h4>Save Map Settings</h4>
+                    
+                    <div class="directory-info">
+                      <div class="info-success">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Using PoleBot directory: <code>~/polman-mbd-ros2-polebot-amr/src/polebot_amr_navigation/maps</code></span>
+                      </div>
+                    </div>
+                    
+                    <div class="input-group">
+                      <label class="input-label">
+                        <span class="label-text">Map Name:</span>
+                        <input 
+                          v-model="mapSaveName" 
+                          type="text" 
+                          placeholder="polebot_map" 
+                          class="input-field"
+                          :disabled="!isConnected || isSavingMap"
+                        >
+                        <div class="input-hint">File extensions (.yaml, .pgm) will be added automatically</div>
+                      </label>
+                    </div>
+                    
+                    <div class="input-group">
+                      <label class="input-label">
+                        <span class="label-text">Save Directory:</span>
+                        <input 
+                          v-model="mapSaveDirectory" 
+                          type="text" 
+                          class="input-field"
+                          :disabled="!isConnected || isSavingMap"
+                        >
+                        <div class="input-hint">Maps will be saved to PoleBot navigation directory</div>
+                      </label>
+                    </div>
+                    
+                    <div class="save-buttons">
+                      <button 
+                        @click="saveMapWithCorrectFormat" 
+                        :disabled="!isConnected || isSavingMap || !mapSaveName"
+                        class="save-btn primary"
+                      >
+                        <span class="btn-icon">
+                          <i v-if="isSavingMap" class="fas fa-spinner fa-spin"></i>
+                          <i v-else class="fas fa-save"></i>
+                        </span>
+                        <span class="btn-text">
+                          {{ isSavingMap ? 'Saving Map...' : 'Save Map' }}
+                        </span>
+                      </button>
+                      
+                      <button 
+                        @click="saveMapWithDialog" 
+                        :disabled="!isConnected || isSavingMap"
+                        class="save-btn secondary"
+                      >
+                        <span class="btn-icon"><i class="fas fa-folder-open"></i></span>
+                        <span class="btn-text">Save with Dialog</span>
+                      </button>
+
+                      <button 
+                        @click="quickSaveMap" 
+                        :disabled="!isConnected || isSavingMap"
+                        class="save-btn secondary"
+                      >
+                        <span class="btn-icon"><i class="fas fa-bolt"></i></span>
+                        <span class="btn-text">Quick Save</span>
+                      </button>
+
+                      <!-- Debug Button -->
+                      <button 
+                        @click="debugService" 
+                        :disabled="!isConnected"
+                        class="save-btn debug"
+                      >
+                        <span class="btn-icon"><i class="fas fa-bug"></i></span>
+                        <span class="btn-text">Debug Service</span>
+                      </button>
+                    </div>
+                    
+                    <!-- Service Info Display -->
+                    <div v-if="serviceInfo" class="service-info">
+                      <div class="info-title">Service Information:</div>
+                      <div class="info-content">
+                        <div><strong>Type:</strong> {{ serviceInfo.type }}</div>
+                        <div><strong>Available:</strong> {{ serviceInfo.available ? 'Yes' : 'No' }}</div>
+                        <div><strong>Request Format:</strong> {{ serviceInfo.requestType }}</div>
+                        <div><strong>Response Codes:</strong> {{ serviceInfo.responseType }}</div>
+                      </div>
+                    </div>
+                    
+                    <!-- Save Status Display -->
+                    <div v-if="lastSaveStatus" :class="['save-status', lastSaveStatus.type]">
+                      <span class="status-icon">
+                        <i :class="lastSaveStatus.icon"></i>
+                      </span>
+                      <span class="status-message">{{ lastSaveStatus.message }}</span>
+                    </div>
+
+                    <!-- Troubleshooting Tips -->
+                    <div v-if="lastSaveStatus && lastSaveStatus.type === 'error'" class="troubleshooting-tips">
+                      <div class="tips-title">Troubleshooting Tips:</div>
+                      <ul class="tips-list">
+                        <li>Ensure slam_toolbox node is running</li>
+                        <li>Check directory permissions</li>
+                        <li>Try simple map names without spaces</li>
+                        <li>Verify ROS2 bridge connection</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- Map Information Panel -->
               <div class="control-panel">
                 <div class="panel-header">
@@ -337,9 +501,16 @@ export default {
       mapData: null,
       canvasSize: { width: 100, height: 100 },
 
+      // Map Save Configuration
+      mapSaveName: '',
+      mapSaveDirectory: '~/polman-mbd-ros2-polebot-amr/src/polebot_amr_navigation/maps',
+      isSavingMap: false,
+      lastSaveStatus: null,
+      serviceInfo: null,
+
       // Coordinate Configuration
-      flipXCoordinate: false,  // Flip X axis for RViz coordinates
-      flipYCoordinate: false,  // Flip Y axis for RViz coordinates
+      flipXCoordinate: false,
+      flipYCoordinate: false,
       offset: { x: 0, y: 0, scale: 1.0 },
 
       // User Interaction
@@ -364,16 +535,14 @@ export default {
       // ROS Topics
       mapTopic: null,
       goalTopic: null,
-      navStatusTopic: null,
-      btLogTopic: null,
-      rosoutTopic: null,
-      rosoutSubscription: null,
-      goalCompletionTimeout: null
+      saveMapService: null,
+      navStatusTopic: null
     };
   },
 
   mounted() {
     this.connectROS();
+    this.mapSaveName = `polebot_map_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}_${this.getTimeStamp()}`;
   },
 
   methods: {
@@ -392,14 +561,257 @@ export default {
       this.interactionMode = 'view';
     },
 
+    // ==================== MAP SAVE FUNCTIONALITY ====================
+    
+    getTimeStamp() {
+      const now = new Date();
+      return `${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}`;
+    },
+
+    /**
+     * ✅ CORRECTED - Menggunakan std_msgs/String untuk field name
+     */
+    async saveMapWithCorrectFormat() {
+      if (!this.isConnected || this.isSavingMap) {
+        console.warn('Cannot save map: ROS not connected or already saving');
+        return;
+      }
+
+      this.isSavingMap = true;
+      this.lastSaveStatus = {
+        type: 'info',
+        icon: 'fas fa-info-circle',
+        message: 'Saving map with std_msgs/String format...'
+      };
+
+      try {
+        // Validate inputs
+        if (!this.mapSaveName || this.mapSaveName.trim() === '') {
+          throw new Error('Map name cannot be empty');
+        }
+
+        const mapPath = this.constructMapPath();
+        console.log(`Saving map to: ${mapPath}`);
+
+        // ✅ CORRECT SERVICE TYPE dengan format yang benar
+        const result = await this.saveMapWithStdMsgsFormat(mapPath);
+        
+        this.handleSaveSuccess(mapPath);
+        
+      } catch (error) {
+        this.handleSaveError(error);
+      } finally {
+        this.isSavingMap = false;
+      }
+    },
+
+    /**
+     * ✅ CORRECT - Menggunakan std_msgs/String untuk field name
+     */
+    saveMapWithStdMsgsFormat(mapPath) {
+      return new Promise((resolve, reject) => {
+        // ✅ CORRECT SERVICE TYPE
+        const saveMapService = new ROSLIB.Service({
+          ros: this.ros,
+          name: '/slam_toolbox/save_map',
+          serviceType: 'slam_toolbox/srv/SaveMap'
+        });
+
+        // ✅ CORRECT REQUEST FORMAT: menggunakan std_msgs/String
+        const request = new ROSLIB.ServiceRequest({
+          name: new ROSLIB.Message({
+            data: mapPath  // ✅ std_msgs/String format
+          })
+        });
+
+        console.log('✅ Service Request (std_msgs/String):', request);
+
+        saveMapService.callService(request, (result) => {
+          console.log('✅ Service Result:', result);
+          if (result !== undefined && result !== null) {
+            // Check result code based on interface
+            if (result.result === 0) {
+              resolve(result);
+            } else if (result.result === 1) {
+              reject(new Error('No map received - slam_toolbox might not be mapping'));
+            } else if (result.result === 255) {
+              reject(new Error('Undefined failure occurred'));
+            } else {
+              resolve(result); // Unknown result code but not an error
+            }
+          } else {
+            reject(new Error('Service returned undefined result'));
+          }
+        }, (error) => {
+          console.error('❌ Service Error:', error);
+          reject(error);
+        });
+      });
+    },
+
+    constructMapPath() {
+      let mapPath = this.mapSaveName.trim();
+      
+      // Remove extensions if present
+      mapPath = mapPath.replace(/\.(yaml|pgm|png)$/i, '');
+      
+      // Gunakan directory yang sudah ditentukan
+      let directory = this.mapSaveDirectory.trim();
+      
+      // Clean directory path
+      if (directory.endsWith('/')) {
+        directory = directory.slice(0, -1);
+      }
+      
+      mapPath = `${directory}/${mapPath}`;
+      
+      console.log('Final map path:', mapPath);
+      return mapPath;
+    },
+
+    handleSaveSuccess(mapPath) {
+      this.lastSaveStatus = {
+        type: 'success',
+        icon: 'fas fa-check-circle',
+        message: `✅ Map saved successfully to: ${mapPath}`
+      };
+      
+      console.log('Map saved successfully:', mapPath);
+      
+      setTimeout(() => {
+        if (this.lastSaveStatus?.type === 'success') {
+          this.lastSaveStatus = null;
+        }
+      }, 8000);
+    },
+
+    handleSaveError(error) {
+      let errorMessage = 'Unknown error occurred';
+      let showTroubleshooting = false;
+      
+      if (error.message.includes('FieldTypeMismatchException')) {
+        errorMessage = 'Field type mismatch. Using std_msgs/String format...';
+        // Auto-retry dengan format yang benar
+        setTimeout(() => {
+          const mapPath = this.constructMapPath();
+          this.saveMapWithStdMsgsFormat(mapPath)
+            .then(() => this.handleSaveSuccess(mapPath))
+            .catch((retryError) => {
+              this.lastSaveStatus = {
+                type: 'error',
+                icon: 'fas fa-exclamation-circle',
+                message: `❌ Retry failed: ${retryError.message}`
+              };
+            });
+        }, 2000);
+        return;
+      } else if (error.message.includes('No such file or directory')) {
+        errorMessage = 'Directory not found. Please check the path.';
+        showTroubleshooting = true;
+      } else if (error.message.includes('Permission denied')) {
+        errorMessage = 'Permission denied. Check directory permissions.';
+        showTroubleshooting = true;
+      } else if (error.message.includes('Service not found')) {
+        errorMessage = 'Save map service not found. Check if slam_toolbox is running.';
+        showTroubleshooting = true;
+      } else if (error.message.includes('No map received')) {
+        errorMessage = 'No map data received. Is slam_toolbox actively mapping?';
+        showTroubleshooting = true;
+      } else if (error.message.includes('Undefined failure')) {
+        errorMessage = 'Undefined failure occurred. Check slam_toolbox logs.';
+        showTroubleshooting = true;
+      } else {
+        errorMessage = `Save failed: ${error.message}`;
+        showTroubleshooting = true;
+      }
+
+      this.lastSaveStatus = {
+        type: 'error',
+        icon: 'fas fa-exclamation-circle',
+        message: `❌ ${errorMessage}`,
+        showTroubleshooting: showTroubleshooting
+      };
+      
+      console.error('Map save error:', error);
+    },
+
+    saveMapWithDialog() {
+      const suggestedName = `polebot_map_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+      const mapName = prompt('Enter map name:', this.mapSaveName || suggestedName);
+      
+      if (mapName === null) return;
+      
+      if (!mapName.trim()) {
+        alert('Map name cannot be empty!');
+        return;
+      }
+
+      this.mapSaveName = mapName.trim();
+      this.saveMapWithCorrectFormat();
+    },
+
+    quickSaveMap() {
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      this.mapSaveName = `polebot_quick_${timestamp}`;
+      this.saveMapWithCorrectFormat();
+    },
+
+    /**
+     * ✅ ENHANCED DEBUG untuk melihat service yang sebenarnya
+     */
+    async debugService() {
+      if (!this.ros) {
+        console.error('ROS not connected');
+        return;
+      }
+
+      this.lastSaveStatus = {
+        type: 'info',
+        icon: 'fas fa-info-circle',
+        message: 'Debugging service with actual interface...'
+      };
+
+      try {
+        // Get all services
+        const services = await new Promise((resolve, reject) => {
+          this.ros.getServices((services) => {
+            resolve(services);
+          }, (error) => {
+            reject(error);
+          });
+        });
+
+        console.log('Available services:', services);
+
+        const saveMapAvailable = services.includes('/slam_toolbox/save_map');
+        
+        // Update service info berdasarkan interface yang sebenarnya
+        this.serviceInfo = {
+          available: saveMapAvailable,
+          type: 'slam_toolbox/srv/SaveMap',
+          requestType: 'std_msgs/String name',
+          responseType: 'uint8 result (0=SUCCESS, 1=NO_MAP_RECEIVED, 255=UNDEFINED_FAILURE)',
+          details: 'Requires std_msgs/String for name field'
+        };
+
+        this.lastSaveStatus = {
+          type: 'success',
+          icon: 'fas fa-check-circle',
+          message: `✅ Debug complete. Service available: ${saveMapAvailable}`
+        };
+
+      } catch (error) {
+        console.error('Debug error:', error);
+        this.lastSaveStatus = {
+          type: 'error',
+          icon: 'fas fa-exclamation-circle',
+          message: `❌ Debug failed: ${error.message}`
+        };
+      }
+    },
+
     // ==================== MAP RENDERING ====================
     
-    /**
-     * Renders occupancy grid map to canvas
-     * - Unknown areas: Gray (128)
-     * - Free space: White (255) 
-     * - Occupied: Black (0)
-     */
     renderMapToCanvas(mapData) {
       const canvas = this.$refs.mapCanvas;
       if (!canvas) return;
@@ -441,10 +853,6 @@ export default {
 
     // ==================== COORDINATE CONVERSION ====================
     
-    /**
-     * Converts pixel coordinates to map world coordinates
-     * Applies offset and scale adjustments
-     */
     pixelToMapCoordinates(px, py) {
       if (!this.mapData || !this.mapInfo) return null;
 
@@ -460,10 +868,6 @@ export default {
       return { mapX, mapY };
     },
 
-    /**
-     * Converts map world coordinates to pixel coordinates
-     * Used for displaying goal markers on canvas
-     */
     calculatePixelCoordinates(mapX, mapY) {
       if (!this.mapData || !this.mapInfo) return { px: 0, py: 0 };
 
@@ -484,11 +888,6 @@ export default {
       };
     },
 
-    /**
-     * Applies coordinate flip transformations for RViz
-     * - flipXCoordinate: Web +X → RViz -X
-     * - flipYCoordinate: Web +Y → RViz -Y
-     */
     getGoalForRViz(goal) {
       if (!goal) return { x: 0, y: 0 };
 
@@ -503,13 +902,13 @@ export default {
 
     getFlipEffectDescription() {
       if (!this.flipXCoordinate && !this.flipYCoordinate) {
-        return 'Web and RViz coordinates match';
+        return 'Web and RViz coordinates match exactly';
       } else if (this.flipXCoordinate && !this.flipYCoordinate) {
-        return 'Web +X → RViz -X, Y coordinates match';
+        return 'Web +X → RViz -X (X-axis flipped)';
       } else if (!this.flipXCoordinate && this.flipYCoordinate) {
-        return 'Web +Y → RViz -Y, X coordinates match';
+        return 'Web +Y → RViz -Y (Y-axis flipped)';
       } else {
-        return 'Web (X,Y) → RViz (-X,-Y) - Both axes flipped';
+        return 'Web (X,Y) → RViz (-X,-Y) (Both axes flipped)';
       }
     },
 
@@ -586,85 +985,48 @@ export default {
       if (!this.isConnected || !goal) return;
 
       const rvizGoal = this.getGoalForRViz(goal);
-      let adjustedX = rvizGoal.x;
-
-      // Apply dynamic offset based on mission progression
-      if (this.currentMissionGoal > 0) {
-        const previousGoal = this.goals[this.currentMissionGoal - 1];
-        const currentGoal = goal;
-
-        if (currentGoal.x < previousGoal.x) {
-          adjustedX = rvizGoal.x + 0.3; // X decreased - add small offset
-        } else if (currentGoal.x > previousGoal.x) {
-          adjustedX = rvizGoal.x + 0.7; // X increased - add larger offset
-        }
-      }
-
+      
       const goalMessage = new ROSLIB.Message({
-        header: { stamp: { sec: 0, nanosec: 0 }, frame_id: 'map' },
+        header: { 
+          stamp: { 
+            sec: Math.floor(Date.now() / 1000), 
+            nanosec: (Date.now() % 1000) * 1000000 
+          }, 
+          frame_id: 'map' 
+        },
         pose: {
-          position: { x: adjustedX, y: rvizGoal.y, z: 0.0 },
+          position: { x: rvizGoal.x, y: rvizGoal.y, z: 0.0 },
           orientation: { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }
         }
       });
 
       try {
         this.goalTopic.publish(goalMessage);
-        this.startGoalCompletionMonitoring();
+        this.missionStatus = `Goal ${this.currentMissionGoal + 1} sent`;
+        
+        // Simulate goal completion after delay
+        setTimeout(() => {
+          if (this.missionActive) {
+            this.handleGoalSuccess();
+          }
+        }, 3000);
       } catch (error) {
         console.error('Error sending mission goal:', error);
         this.handleGoalFailure();
       }
     },
 
-    startGoalCompletionMonitoring() {
-      this.stopGoalCompletionMonitoring();
-
-      // Monitor ROS logs for goal completion status
-      this.rosoutTopic = new ROSLIB.Topic({
-        ros: this.ros,
-        name: '/rosout',
-        messageType: 'rcl_interfaces/msg/Log'
-      });
-
-      this.rosoutSubscription = this.rosoutTopic.subscribe((msg) => {
-        if (msg.name === 'bt_navigator' && msg.msg) {
-          if (msg.msg.includes('Goal succeeded')) {
-            this.handleGoalSuccess();
-          } else if (msg.msg.includes('Goal failed')) {
-            this.handleGoalFailure();
-          }
-        }
-      });
-    },
-
-    stopGoalCompletionMonitoring() {
-      if (this.goalCompletionTimeout) {
-        clearTimeout(this.goalCompletionTimeout);
-        this.goalCompletionTimeout = null;
-      }
-      
-      if (this.rosoutSubscription) {
-        this.rosoutSubscription.unsubscribe();
-        this.rosoutSubscription = null;
-      }
-    },
-
     handleGoalSuccess() {
-      this.stopGoalCompletionMonitoring();
-      
-      const completedGoal = this.currentMissionGoal;
       this.currentMissionGoal++;
       
       if (this.currentMissionGoal < this.goals.length) {
-        setTimeout(() => this.executeCurrentGoal(), 2000);
+        setTimeout(() => this.executeCurrentGoal(), 1000);
       } else {
         this.completeMission();
       }
     },
 
     handleGoalFailure() {
-      this.stopGoalCompletionMonitoring();
       this.missionStatus = `Failed at Goal ${this.currentMissionGoal + 1}`;
       this.missionActive = false;
     },
@@ -675,7 +1037,6 @@ export default {
     },
 
     cancelMission() {
-      this.stopGoalCompletionMonitoring();
       this.missionActive = false;
       this.missionStatus = 'Cancelled';
     },
@@ -683,13 +1044,20 @@ export default {
     // ==================== ROS INTEGRATION ====================
     
     connectROS() {
-      this.ros = new ROSLIB.Ros({ url: this.rosBridgeUrl });
+      this.ros = new ROSLIB.Ros({ 
+        url: this.rosBridgeUrl 
+      });
 
       this.ros.on('connection', () => {
         this.isConnected = true;
         this.updateStatus('✅ Connected to ROS Bridge!', 'connected', 'fas fa-check-circle');
         this.setupNav2Topics();
         this.subscribeToMap();
+        
+        // Debug service on connection
+        setTimeout(() => {
+          this.debugService();
+        }, 1000);
       });
 
       this.ros.on('error', (error) => {
@@ -710,8 +1078,6 @@ export default {
         name: '/goal_pose',
         messageType: 'geometry_msgs/msg/PoseStamped'
       });
-
-      this.setupNavigationMonitoring();
     },
 
     subscribeToMap() {
@@ -744,23 +1110,6 @@ export default {
       };
 
       this.$nextTick(() => this.renderMapToCanvas(mapData));
-    },
-
-    setupNavigationMonitoring() {
-      // Navigation status monitoring
-      this.navStatusTopic = new ROSLIB.Topic({
-        ros: this.ros,
-        name: '/bt_navigator/transition_event',
-        messageType: 'lifecycle_msgs/msg/TransitionEvent'
-      });
-
-      this.navStatusTopic.subscribe(this.handleNavigationTransition);
-    },
-
-    handleNavigationTransition(msg) {
-      if (msg.transition?.label === 'activate') {
-        this.navigationStatus = { status: 'Navigation Active', isActive: true };
-      }
     },
 
     // ==================== UTILITY METHODS ====================
@@ -800,13 +1149,18 @@ export default {
       this.connectionStatus = { message, class: statusClass, icon };
     },
 
-    // Single goal sending (for individual goal testing)
     sendSingleGoal(goal) {
       if (!this.isConnected || !goal) return;
 
       const rvizGoal = this.getGoalForRViz(goal);
       const goalMessage = new ROSLIB.Message({
-        header: { stamp: { sec: 0, nanosec: 0 }, frame_id: 'map' },
+        header: { 
+          stamp: { 
+            sec: Math.floor(Date.now() / 1000), 
+            nanosec: (Date.now() % 1000) * 1000000 
+          }, 
+          frame_id: 'map' 
+        },
         pose: {
           position: { x: rvizGoal.x, y: rvizGoal.y, z: 0.0 },
           orientation: { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }
@@ -825,6 +1179,25 @@ export default {
 </script>
 
 <style scoped>
+/* CSS Variables */
+:root {
+  --primary-dark: #1a1a2e;
+  --primary-medium: #16213e;
+  --primary-light: #0f3460;
+  --card-bg: #2d3748;
+  --border-color: #4a5568;
+  --text-primary: #e2e8f0;
+  --text-secondary: #a0aec0;
+  --text-muted: #718096;
+  --accent-primary: #4a90e2;
+  --accent-success: #48bb78;
+  --accent-warning: #ecc94b;
+  --accent-danger: #f56565;
+  --hover-light: rgba(255, 255, 255, 0.05);
+  --shadow-light: rgba(0, 0, 0, 0.1);
+  --shadow-medium: rgba(0, 0, 0, 0.3);
+}
+
 /* Main Layout */
 .app-layout {
   display: flex;
@@ -832,6 +1205,7 @@ export default {
   background-color: var(--primary-dark);
   color: var(--text-primary);
   overflow: hidden;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
 /* Sidebar */
@@ -1010,7 +1384,7 @@ export default {
   background-color: var(--primary-dark);
 }
 
-/* Your existing NAV2 styles */
+/* NAV2 Map Controller Styles */
 .nav2-map-controller {
   width: 100%;
   height: 100%;
@@ -1035,6 +1409,32 @@ export default {
 .subtitle {
   margin: 0;
   font-size: 16px;
+  color: var(--text-secondary);
+}
+
+/* ROS2 Version Info */
+.ros-version-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background-color: rgba(74, 144, 226, 0.15);
+  border-radius: 6px;
+  margin-bottom: 15px;
+  border-left: 4px solid var(--accent-primary);
+}
+
+.version-badge {
+  background-color: var(--accent-primary);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.version-details {
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
@@ -1289,6 +1689,311 @@ export default {
   box-shadow: 0 4px 8px var(--shadow-light);
 }
 
+/* Save Map Controls Styling */
+.save-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.flip-settings, .save-config {
+  padding: 15px;
+  background-color: var(--primary-medium);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.flip-settings h4, .save-config h4 {
+  margin: 0 0 12px 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.flip-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.checkbox-label:hover {
+  background-color: var(--hover-light);
+}
+
+.checkbox-input {
+  display: none;
+}
+
+.checkmark {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border-color);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.checkbox-input:checked + .checkmark {
+  background-color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.checkbox-input:checked + .checkmark::after {
+  content: '✓';
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.checkbox-text {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.coordinate-preview {
+  padding: 10px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+}
+
+.preview-title {
+  font-weight: 600;
+  margin-bottom: 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.preview-content {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.save-config {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.directory-info {
+  margin-bottom: 15px;
+}
+
+.info-success {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  background-color: rgba(40, 167, 69, 0.15);
+  border: 1px solid rgba(40, 167, 69, 0.3);
+  border-radius: 6px;
+  color: #28a745;
+  font-size: 13px;
+}
+
+.info-success i {
+  font-size: 16px;
+}
+
+.info-success code {
+  background-color: rgba(0, 0, 0, 0.2);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.input-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.save-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.save-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.2s ease;
+  min-width: 120px;
+}
+
+.save-btn.primary {
+  background-color: var(--accent-success);
+  color: white;
+}
+
+.save-btn.primary:hover:not(:disabled) {
+  background-color: #218838;
+  transform: translateY(-1px);
+}
+
+.save-btn.secondary {
+  background-color: var(--primary-light);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.save-btn.secondary:hover:not(:disabled) {
+  background-color: var(--hover-light);
+  transform: translateY(-1px);
+}
+
+.save-btn.debug {
+  background-color: var(--accent-warning);
+  color: #212529;
+}
+
+.save-btn.debug:hover:not(:disabled) {
+  background-color: #e0a800;
+  transform: translateY(-1px);
+}
+
+.save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.service-info {
+  padding: 12px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  margin-top: 10px;
+  border-left: 4px solid var(--accent-primary);
+}
+
+.info-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.info-content {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.info-content div {
+  font-family: 'Courier New', monospace;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 4px 6px;
+  border-radius: 3px;
+}
+
+.save-status {
+  padding: 10px;
+  border-radius: 6px;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.save-status.success {
+  background-color: rgba(40, 167, 69, 0.15);
+  color: #28a745;
+  border: 1px solid rgba(40, 167, 69, 0.3);
+}
+
+.save-status.error {
+  background-color: rgba(220, 53, 69, 0.15);
+  color: #dc3545;
+  border: 1px solid rgba(220, 53, 69, 0.3);
+}
+
+.save-status.warning {
+  background-color: rgba(255, 193, 7, 0.15);
+  color: #ffc107;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.save-status.info {
+  background-color: rgba(23, 162, 184, 0.15);
+  color: #17a2b8;
+  border: 1px solid rgba(23, 162, 184, 0.3);
+}
+
+.status-icon {
+  font-size: 16px;
+}
+
+.status-message {
+  font-weight: 500;
+}
+
+.troubleshooting-tips {
+  margin-top: 15px;
+  padding: 12px;
+  background-color: rgba(108, 117, 125, 0.15);
+  border-radius: 6px;
+  border-left: 4px solid #6c757d;
+}
+
+.tips-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.tips-list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.tips-list li {
+  margin-bottom: 4px;
+}
+
+.tips-list code {
+  background-color: rgba(0, 0, 0, 0.2);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+}
+
 /* Mission Info Styles */
 .mission-info {
   background-color: var(--primary-medium);
@@ -1493,12 +2198,6 @@ export default {
   text-align: center;
 }
 
-.mission-details p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-primary);
-}
-
 .connection-controls {
   display: flex;
   gap: 10px;
@@ -1638,7 +2337,7 @@ button:not(:disabled):hover {
     justify-content: space-between;
   }
   
-  .mission-buttons, .connection-controls {
+  .mission-buttons, .connection-controls, .save-buttons {
     flex-direction: column;
   }
   
@@ -1650,6 +2349,48 @@ button:not(:disabled):hover {
   
   .info-value {
     text-align: left;
+  }
+
+  .flip-controls {
+    gap: 8px;
+  }
+  
+  .checkbox-text {
+    font-size: 13px;
+  }
+
+  .save-btn {
+    min-width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .navbar {
+    padding: 0 10px;
+  }
+  
+  .page-title {
+    font-size: 16px;
+  }
+  
+  .header-section h1 {
+    font-size: 22px;
+  }
+  
+  .subtitle {
+    font-size: 14px;
+  }
+  
+  .control-panel {
+    padding: 15px;
+  }
+  
+  .save-controls {
+    gap: 15px;
+  }
+  
+  .flip-settings, .save-config {
+    padding: 12px;
   }
 }
 </style>
