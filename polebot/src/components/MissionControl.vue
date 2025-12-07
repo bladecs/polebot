@@ -398,8 +398,18 @@
               </div>
             </div>
             
-            <!-- Execution Controls -->
+            <!-- Execution Controls dengan Tombol Run All Missions -->
             <div class="execution-controls">
+              <!-- Tombol Run All Missions -->
+              <div class="control-row">
+                <button @click="runAllMissions" 
+                        :disabled="!canRunAllMissions" 
+                        class="control-btn primary" title="Run All Missions">
+                  <i class="fas fa-play-circle"></i>
+                  <span class="btn-text">Run All Missions</span>
+                </button>
+              </div>
+              
               <div class="control-row">
                 <button @click="pauseMission" 
                         :disabled="!missionState.isActive || missionState.isPaused" 
@@ -414,7 +424,7 @@
                   <span class="btn-text">Resume</span>
                 </button>
                 <button @click="stopMission" 
-                        :disabled="!missionState.isActive" 
+                        :disabled="!missionState.isActive && !isRunningAllMissions" 
                         class="control-btn danger" title="Stop">
                   <i class="fas fa-stop"></i>
                   <span class="btn-text">Stop</span>
@@ -641,7 +651,11 @@ export default {
       goalTopic: null,
       goalStatusTopic: null,
       completionTimer: null,
-      timeInterval: null
+      timeInterval: null,
+      isRunningAllMissions: false,
+      batchMissions: [],
+      currentBatchMissionIndex: 0,
+      batchCompletionCheck: null
     }
   },
   computed: {
@@ -699,6 +713,12 @@ export default {
     },
     canSaveCategory() {
       return this.newCategory.name.trim()
+    },
+    canRunAllMissions() {
+      return this.isConnected && 
+             this.filteredMissions.length > 0 && 
+             !this.missionState.isActive &&
+             !this.isRunningAllMissions
     }
   },
   watch: {
@@ -720,11 +740,15 @@ export default {
   },
   beforeUnmount() {
     this.stopMission()
+    this.stopAllMissions()
     if (this.timeInterval) {
       clearInterval(this.timeInterval)
     }
     if (this.completionTimer) {
       clearTimeout(this.completionTimer)
+    }
+    if (this.batchCompletionCheck) {
+      clearInterval(this.batchCompletionCheck)
     }
   },
   methods: {
@@ -1344,7 +1368,6 @@ export default {
       }
       
       this.goalStartTime = Date.now()
-      this.missionLogs = []
       
       this.addLog('info', `🚀 Mission "${this.currentMission.name}" started`)
       this.addLog('info', `📊 Executing ${this.currentMission.goals.length} goals`)
@@ -1491,7 +1514,7 @@ export default {
     },
     
     stopMission() {
-      if (!this.missionState.isActive) return
+      if (!this.missionState.isActive && !this.isRunningAllMissions) return
       
       this.missionState.isActive = false
       this.missionState.isPaused = false
@@ -1499,7 +1522,13 @@ export default {
       this.stopGoalMonitoring()
       this.currentGoal = null
       this.goalStartTime = null
-      this.addLog('warning', '⏹️ Mission stopped')
+      
+      // Also stop batch execution if running
+      if (this.isRunningAllMissions) {
+        this.stopAllMissions()
+      } else {
+        this.addLog('warning', '⏹️ Mission stopped')
+      }
     },
     
     cancelMission() {
@@ -1545,6 +1574,130 @@ export default {
       
       this.addLog('success', `🎉 Mission "${this.currentMission.name}" completed!`)
       this.addLog('success', `📊 ${this.missionState.completedGoals} of ${this.missionState.totalSteps} goals completed`)
+    },
+    
+    // ====== RUN ALL MISSIONS FUNCTIONALITY ======
+    
+    async runAllMissions() {
+      if (!this.isConnected) {
+        this.addLog('error', 'Cannot run missions: ROS not connected')
+        return
+      }
+      
+      if (this.filteredMissions.length === 0) {
+        this.addLog('error', 'No missions available to run')
+        return
+      }
+      
+      // Filter hanya misi yang memiliki goals
+      const missionsWithGoals = this.filteredMissions.filter(m => m.goal_count > 0)
+      
+      if (missionsWithGoals.length === 0) {
+        this.addLog('error', 'No missions with goals available to run')
+        return
+      }
+      
+      if (!confirm(`Run all ${missionsWithGoals.length} missions? This will execute each mission sequentially.`)) {
+        return
+      }
+      
+      this.addLog('info', `🚀 Starting to run all ${missionsWithGoals.length} missions`)
+      
+      // Setup batch execution
+      this.isRunningAllMissions = true
+      this.batchMissions = [...missionsWithGoals]
+      this.currentBatchMissionIndex = 0
+      this.missionState.status = 'batch-executing'
+      
+      // Start batch execution
+      await this.executeNextMissionInBatch()
+    },
+    
+    async executeNextMissionInBatch() {
+      if (!this.isRunningAllMissions || this.currentBatchMissionIndex >= this.batchMissions.length) {
+        this.completeAllMissions()
+        return
+      }
+      
+      const mission = this.batchMissions[this.currentBatchMissionIndex]
+      const missionNumber = this.currentBatchMissionIndex + 1
+      const totalMissions = this.batchMissions.length
+      
+      this.addLog('info', `📋 Mission ${missionNumber}/${totalMissions}: ${mission.name}`)
+      
+      try {
+        // Load the mission
+        await this.loadMission(mission)
+        
+        // Start mission execution
+        this.startMissionExecution()
+        
+        // Setup completion monitoring
+        this.monitorBatchMissionCompletion()
+        
+      } catch (error) {
+        this.addLog('error', `Failed to execute mission ${mission.name}: ${error.message}`)
+        this.currentBatchMissionIndex++
+        setTimeout(() => this.executeNextMissionInBatch(), 1000)
+      }
+    },
+    
+    monitorBatchMissionCompletion() {
+      if (this.batchCompletionCheck) {
+        clearInterval(this.batchCompletionCheck)
+      }
+      
+      this.batchCompletionCheck = setInterval(() => {
+        if (!this.missionState.isActive && !this.missionState.isPaused) {
+          clearInterval(this.batchCompletionCheck)
+          this.batchCompletionCheck = null
+          
+          const mission = this.batchMissions[this.currentBatchMissionIndex]
+          const missionNumber = this.currentBatchMissionIndex + 1
+          
+          // Check mission completion status
+          if (this.missionState.status === 'completed') {
+            this.addLog('success', `✅ Mission ${missionNumber}: ${mission.name} completed successfully`)
+          } else {
+            this.addLog('warning', `⚠️ Mission ${missionNumber}: ${mission.name} ended with status: ${this.missionState.status}`)
+          }
+          
+          this.currentBatchMissionIndex++
+          
+          // Delay before next mission
+          setTimeout(() => {
+            this.executeNextMissionInBatch()
+          }, 2000)
+        }
+      }, 1000)
+    },
+    
+    stopAllMissions() {
+      this.isRunningAllMissions = false
+      this.batchMissions = []
+      this.currentBatchMissionIndex = 0
+      
+      if (this.batchCompletionCheck) {
+        clearInterval(this.batchCompletionCheck)
+        this.batchCompletionCheck = null
+      }
+      
+      this.addLog('warning', '⏹️ All missions execution stopped')
+      this.missionState.status = 'idle'
+    },
+    
+    completeAllMissions() {
+      this.isRunningAllMissions = false
+      this.batchMissions = []
+      this.currentBatchMissionIndex = 0
+      
+      if (this.batchCompletionCheck) {
+        clearInterval(this.batchCompletionCheck)
+        this.batchCompletionCheck = null
+      }
+      
+      this.addLog('success', `🎉 All missions completed!`)
+      this.missionState.status = 'idle'
     },
     
     updateElapsedTime() {
@@ -2662,7 +2815,7 @@ export default {
 
 .control-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr;
   gap: 6px;
 }
 
@@ -2683,6 +2836,17 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.control-btn.primary {
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  color: white;
+  border: none;
+}
+
+.control-btn.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
 }
 
 .control-btn.warning {
@@ -2720,6 +2884,10 @@ export default {
   transform: none !important;
 }
 
+.control-row:last-child {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .status-badge {
   padding: 4px 8px;
   border-radius: 12px;
@@ -2751,6 +2919,18 @@ export default {
 .status-badge.completed {
   background-color: rgba(16, 185, 129, 0.1);
   color: #10b981;
+}
+
+.status-badge.batch-executing {
+  background-color: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
 }
 
 /* Logs Panel */
@@ -3190,6 +3370,14 @@ export default {
   .logs-container {
     max-height: 200px;
   }
+  
+  .control-row {
+    grid-template-columns: 1fr;
+  }
+  
+  .control-row:last-child {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 @media (min-width: 1024px) {
@@ -3223,6 +3411,10 @@ export default {
   
   .logs-container {
     max-height: 180px;
+  }
+  
+  .control-row {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -3326,6 +3518,10 @@ export default {
   }
   
   .control-row {
+    grid-template-columns: 1fr;
+  }
+  
+  .control-row:last-child {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   
