@@ -486,7 +486,7 @@ export default {
       ros: null,
       isConnected: false,
       isMapSubscribed: false,
-      rosBridgeUrl: 'ws://localhost:9090',
+      rosBridgeUrl: 'ws://192.168.1.33:9090',
 
       // Map data
       mapInfo: null,

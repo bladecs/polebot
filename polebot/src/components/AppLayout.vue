@@ -46,17 +46,27 @@
       <!-- Navbar -->
       <div class="navbar">
         <div class="navbar-left">
-          <button class="menu-toggle" @click="toggleSidebar">
-            <span class="menu-icon">
-              <i :class="sidebarCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'"></i>
-            </span>
-          </button>
           <div class="breadcrumb">
             <h1 class="page-title">{{ currentPageTitle }}</h1>
             <div class="page-subtitle">Navigation Control System</div>
           </div>
         </div>
+        
         <div class="navbar-right">
+          <!-- Hamburger Button (Desktop) -->
+          <button class="menu-toggle desktop-only" @click="toggleSidebar">
+            <span class="menu-icon">
+              <i :class="sidebarCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'"></i>
+            </span>
+          </button>
+          
+          <!-- Hamburger Button (Mobile) -->
+          <button class="menu-toggle mobile-only" @click="toggleSidebar">
+            <span class="menu-icon">
+              <i :class="sidebarCollapsed ? 'fas fa-bars' : 'fas fa-times'"></i>
+            </span>
+          </button>
+          
           <div class="user-info">
             <div class="user-details">
               <span class="user-name">Operator</span>
@@ -110,7 +120,10 @@ export default {
         message: 'Disconnected',
         class: 'disconnected',
         icon: 'fas fa-plug'
-      }
+      },
+      
+      // Flag untuk kontrol responsive
+      isMobile: false
     }
   },
 
@@ -120,6 +133,10 @@ export default {
     },
     
     sidebarMarginLeft() {
+      // Di mobile, sidebar sebagai overlay (tidak ada margin)
+      if (this.isMobile) {
+        return '0'
+      }
       return `${this.sidebarWidth}px`
     }
   },
@@ -136,6 +153,8 @@ export default {
     
     // Listen for resize events
     window.addEventListener('resize', this.handleResize)
+    // Initial check
+    this.checkIfMobile()
   },
 
   beforeUnmount() {
@@ -145,17 +164,25 @@ export default {
   methods: {
     toggleSidebar() {
       this.sidebarCollapsed = !this.sidebarCollapsed
+      
       // Trigger resize event untuk komponen yang perlu update
       setTimeout(() => {
         window.dispatchEvent(new Event('resize'))
       }, 300)
     },
 
-    handleResize() {
-      // Adjust sidebar on smaller screens
-      if (window.innerWidth <= 1024) {
+    checkIfMobile() {
+      this.isMobile = window.innerWidth <= 1024
+      
+      // Hanya set sidebar collapsed default di mobile saat pertama kali
+      if (this.isMobile && !localStorage.getItem('sidebarInitialized')) {
         this.sidebarCollapsed = true
+        localStorage.setItem('sidebarInitialized', 'true')
       }
+    },
+
+    handleResize() {
+      this.checkIfMobile()
     },
 
     updatePageTitle(route) {
@@ -517,41 +544,8 @@ export default {
   display: flex;
   align-items: center;
   gap: 20px;
-}
-
-.menu-toggle {
-  width: 40px;
-  height: 40px;
-  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-  border: none;
-  color: white;
-  font-size: 16px;
-  cursor: pointer;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.3s ease;
-  position: relative;
-  z-index: 101;
-  flex-shrink: 0;
-}
-
-.menu-toggle:hover {
-  transform: scale(1.1) rotate(-10deg);
-  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
-}
-
-.menu-toggle:active {
-  transform: scale(0.95);
-}
-
-.menu-icon i {
-  transition: transform 0.3s ease;
-}
-
-.menu-toggle:hover .menu-icon i {
-  transform: scale(1.2);
+  flex: 1;
+  min-width: 0;
 }
 
 .breadcrumb {
@@ -587,7 +581,56 @@ export default {
 .navbar-right {
   display: flex;
   align-items: center;
+  gap: 12px;
   flex-shrink: 0;
+}
+
+/* Hamburger Button Styles */
+.menu-toggle {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  border: none;
+  color: white;
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  position: relative;
+  z-index: 101;
+  flex-shrink: 0;
+}
+
+/* Desktop-only hamburger */
+.menu-toggle.desktop-only {
+  display: flex;
+  order: 1;
+}
+
+/* Mobile-only hamburger */
+.menu-toggle.mobile-only {
+  display: none;
+  order: -1;
+}
+
+.menu-toggle:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+}
+
+.menu-toggle:active {
+  transform: scale(0.95);
+}
+
+.menu-icon i {
+  transition: transform 0.3s ease;
+}
+
+.menu-toggle:hover .menu-icon i {
+  transform: scale(1.2);
 }
 
 .user-info {
@@ -660,6 +703,8 @@ export default {
   .sidebar {
     transform: translateX(-100%);
     width: 260px !important;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
   }
   
   .sidebar:not(.collapsed) {
@@ -675,19 +720,36 @@ export default {
     width: 100% !important;
   }
   
-  .menu-toggle {
-    position: fixed;
-    top: 15px;
-    left: 15px;
-    z-index: 1000;
+  /* Sembunyikan hamburger desktop di mobile */
+  .menu-toggle.desktop-only {
+    display: none;
+  }
+  
+  /* Tampilkan hamburger mobile */
+  .menu-toggle.mobile-only {
+    display: flex;
+    order: -1;
+    margin-right: 12px;
     background: var(--primary-dark);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   }
   
-  .navbar-left .breadcrumb {
-    margin-left: 50px;
+  .menu-toggle.mobile-only:hover {
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+    color: white;
+  }
+  
+  /* Overlay untuk menutup sidebar saat diklik di luar */
+  .sidebar:not(.collapsed)::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: -1;
   }
 }
 
@@ -710,16 +772,18 @@ export default {
   }
   
   .sidebar {
-    width: 100%;
-    max-width: 280px;
+    width: 85%;
+    max-width: 300px;
   }
   
-  .menu-toggle {
-    top: 12px;
-    left: 12px;
+  .menu-toggle.mobile-only {
     width: 36px;
     height: 36px;
     font-size: 14px;
+  }
+  
+  .navbar-right {
+    gap: 8px;
   }
 }
 
@@ -728,7 +792,7 @@ export default {
     padding: 0 12px;
   }
   
-  .menu-toggle {
+  .menu-toggle.mobile-only {
     width: 34px;
     height: 34px;
     font-size: 13px;
@@ -756,24 +820,6 @@ export default {
   }
   50% {
     opacity: 0.5;
-  }
-}
-
-@keyframes slideIn {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
-
-@keyframes slideOut {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-100%);
   }
 }
 

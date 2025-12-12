@@ -38,13 +38,10 @@
               <i class="fas fa-plus"></i>
             </button>
           </div>
-          
+
           <div class="categories-list">
-            <div v-for="category in categories" 
-                 :key="category.id" 
-                 class="category-item"
-                 :class="{ active: selectedCategory === category.id }"
-                 @click="selectCategory(category.id)">
+            <div v-for="category in categories" :key="category.id" class="category-item"
+              :class="{ active: selectedCategory === category.id }" @click="selectCategory(category.id)">
               <div class="category-info">
                 <div class="category-name">
                   <i :class="category.icon || 'fas fa-folder'"></i>
@@ -66,7 +63,7 @@
                 </button>
               </div>
             </div>
-            
+
             <div v-if="categories.length === 0" class="empty-state">
               <i class="fas fa-folder-open"></i>
               <p>No categories yet</p>
@@ -85,14 +82,31 @@
               <span class="count-badge">{{ filteredGoals.length }}</span>
             </div>
             <div class="filter-controls">
+              <select v-model="selectedGoalSet" class="filter-select" @change="onGoalSetChange">
+                <option value="">All Goal Sets</option>
+                <option v-for="goalSet in goalSets" :key="goalSet.id" :value="goalSet.id">
+                  {{ goalSet.set_name || `Set ${goalSet.id}` }}
+                </option>
+              </select>
               <div class="search-box">
                 <i class="fas fa-search"></i>
                 <input type="text" v-model="goalSearch" placeholder="Search..." class="search-input">
               </div>
             </div>
           </div>
-          
+
           <div class="goals-list">
+            <!-- Goal Set Info -->
+            <div v-if="selectedGoalSet" class="goal-set-info">
+              <div class="info-badge">
+                <i class="fas fa-layer-group"></i>
+                <span>Goal Set: {{ selectedGoalSetName }}</span>
+                <button class="clear-btn" @click="clearGoalSetSelection">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+            </div>
+
             <div v-for="goal in paginatedGoals" :key="goal.id" class="goal-item">
               <div class="goal-info">
                 <div class="goal-header">
@@ -124,13 +138,13 @@
                 <button class="action-btn" @click="previewGoal(goal)" title="Preview">
                   <i class="fas fa-eye"></i>
                 </button>
-                <button class="action-btn success" @click="addGoalToCurrentMission(goal)" 
-                        :disabled="!selectedMission || isGoalInMission(goal.id)" title="Add to Mission">
+                <button class="action-btn success" @click="addGoalToCurrentMission(goal)"
+                  :disabled="!selectedMission || isGoalInMission(goal.id)" title="Add to Mission">
                   <i class="fas fa-plus"></i>
                 </button>
               </div>
             </div>
-            
+
             <div v-if="filteredGoals.length === 0" class="empty-state">
               <i class="fas fa-crosshairs"></i>
               <p v-if="isLoadingGoals">Loading goals...</p>
@@ -139,7 +153,7 @@
                 <i class="fas fa-map"></i> Go to Planning
               </router-link>
             </div>
-            
+
             <!-- Pagination -->
             <div v-if="filteredGoals.length > itemsPerPage" class="pagination">
               <button @click="prevPage" :disabled="currentPage === 1" class="pagination-btn">
@@ -172,7 +186,7 @@
               </button>
             </div>
           </div>
-          
+
           <!-- Mission Info -->
           <div class="mission-info-card">
             <div class="info-row">
@@ -192,33 +206,27 @@
             </div>
             <div class="info-group">
               <label>Description</label>
-              <textarea v-model="currentMission.description" 
-                        placeholder="Describe your mission..." 
-                        class="mission-textarea"
-                        rows="2"></textarea>
+              <textarea v-model="currentMission.description" placeholder="Describe your mission..."
+                class="mission-textarea" rows="2"></textarea>
             </div>
           </div>
-          
+
           <!-- Mission Goals Sequence -->
           <div class="mission-sequence">
             <div class="sequence-header">
               <h4>Mission Sequence</h4>
               <div class="sequence-actions">
-                <button class="action-btn small" @click="clearMissionSequence" 
-                        :disabled="currentMission.goals.length === 0">
+                <button class="action-btn small" @click="clearMissionSequence"
+                  :disabled="currentMission.goals.length === 0">
                   <i class="fas fa-trash"></i> <span class="btn-text">Clear</span>
                 </button>
-                <button class="action-btn small" @click="optimizeSequence" 
-                        :disabled="currentMission.goals.length < 2">
+                <button class="action-btn small" @click="optimizeSequence" :disabled="currentMission.goals.length < 2">
                   <i class="fas fa-magic"></i> <span class="btn-text">Optimize</span>
                 </button>
               </div>
             </div>
-            
-            <draggable v-model="currentMission.goals" 
-                      handle=".drag-handle" 
-                      item-key="id"
-                      class="sequence-list">
+
+            <draggable v-model="currentMission.goals" handle=".drag-handle" item-key="id" class="sequence-list">
               <template #item="{ element: goal, index }">
                 <div class="sequence-item">
                   <div class="seq-item-header">
@@ -236,8 +244,8 @@
                       <button @click="moveGoalUp(index)" :disabled="index === 0" class="icon-btn">
                         <i class="fas fa-arrow-up"></i>
                       </button>
-                      <button @click="moveGoalDown(index)" :disabled="index === currentMission.goals.length - 1" 
-                              class="icon-btn">
+                      <button @click="moveGoalDown(index)" :disabled="index === currentMission.goals.length - 1"
+                        class="icon-btn">
                         <i class="fas fa-arrow-down"></i>
                       </button>
                       <button @click="removeGoalFromMission(index)" class="icon-btn danger">
@@ -245,16 +253,118 @@
                       </button>
                     </div>
                   </div>
+
+                  <!-- TRIGGER INPUT untuk setiap goal -->
+                  <div class="goal-trigger-section">
+                    <div class="trigger-header">
+                      <span class="trigger-label">Next Goal Trigger</span>
+                      <span class="trigger-hint">(Condition to proceed to next goal)</span>
+                    </div>
+                    <div class="trigger-options">
+                      <div class="trigger-option">
+                        <input type="radio" :id="'trigger-auto-' + goal.id" value="auto"
+                          v-model="goal.next_goal_trigger" class="trigger-radio">
+                        <label :for="'trigger-auto-' + goal.id" class="trigger-label-option">
+                          <i class="fas fa-robot"></i>
+                          <span>Auto (Default)</span>
+                          <span class="trigger-desc">Proceed when goal is reached</span>
+                        </label>
+                      </div>
+
+                      <div class="trigger-option">
+                        <input type="radio" :id="'trigger-timer-' + goal.id" value="timer"
+                          v-model="goal.next_goal_trigger" class="trigger-radio">
+                        <label :for="'trigger-timer-' + goal.id" class="trigger-label-option">
+                          <i class="fas fa-clock"></i>
+                          <span>Timer</span>
+                          <span class="trigger-desc">Wait for specified time</span>
+                        </label>
+
+                        <div v-if="goal.next_goal_trigger === 'timer'" class="timer-input">
+                          <input type="number" v-model.number="goal.wait_time" min="1" max="300" class="time-input"
+                            placeholder="Seconds">
+                          <span class="time-unit">seconds</span>
+                        </div>
+                      </div>
+
+                      <div class="trigger-option">
+                        <input type="radio" :id="'trigger-manual-' + goal.id" value="manual"
+                          v-model="goal.next_goal_trigger" class="trigger-radio">
+                        <label :for="'trigger-manual-' + goal.id" class="trigger-label-option">
+                          <i class="fas fa-hand-paper"></i>
+                          <span>Manual</span>
+                          <span class="trigger-desc">Wait for user confirmation</span>
+                        </label>
+                      </div>
+
+                      <div class="trigger-option">
+                        <input type="radio" :id="'trigger-sensor-' + goal.id" value="sensor"
+                          v-model="goal.next_goal_trigger" class="trigger-radio">
+                        <label :for="'trigger-sensor-' + goal.id" class="trigger-label-option">
+                          <i class="fas fa-thermometer-half"></i>
+                          <span>Sensor Condition</span>
+                          <span class="trigger-desc">Based on sensor reading</span>
+                        </label>
+
+                        <div v-if="goal.next_goal_trigger === 'sensor'" class="sensor-input">
+                          <select v-model="goal.sensor_type" class="sensor-select">
+                            <option value="">Select Sensor</option>
+                            <option value="distance">Distance Sensor</option>
+                            <option value="temperature">Temperature</option>
+                            <option value="proximity">Proximity</option>
+                            <option value="custom">Custom Condition</option>
+                          </select>
+
+                          <div v-if="goal.sensor_type" class="sensor-params">
+                            <input type="text" v-model="goal.sensor_condition"
+                              placeholder="Condition (e.g., distance < 0.5)" class="condition-input">
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Advanced trigger settings -->
+                    <div v-if="goal.next_goal_trigger && goal.next_goal_trigger !== 'auto'" class="advanced-trigger">
+                      <div class="advanced-toggle" @click="goal.showAdvanced = !goal.showAdvanced">
+                        <span>Advanced Settings</span>
+                        <i :class="['fas', goal.showAdvanced ? 'fa-chevron-up' : 'fa-chevron-down']"></i>
+                      </div>
+
+                      <div v-if="goal.showAdvanced" class="advanced-content">
+                        <div class="form-group">
+                          <label>Timeout (seconds)</label>
+                          <input type="number" v-model.number="goal.timeout" min="10" max="600" class="timeout-input"
+                            placeholder="Optional">
+                        </div>
+
+                        <div class="form-group">
+                          <label>Retry Count</label>
+                          <input type="number" v-model.number="goal.retry_count" min="0" max="5" class="retry-input"
+                            placeholder="0-5">
+                        </div>
+
+                        <div class="form-group">
+                          <label>On Failure Action</label>
+                          <select v-model="goal.on_failure" class="failure-select">
+                            <option value="skip">Skip to next</option>
+                            <option value="retry">Retry</option>
+                            <option value="stop">Stop mission</option>
+                            <option value="pause">Pause and wait</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </template>
             </draggable>
-            
+
             <div v-if="currentMission.goals.length === 0" class="empty-sequence">
               <i class="fas fa-list-ol"></i>
               <p>No goals in sequence. Add goals from the left panel.</p>
             </div>
           </div>
-          
+
           <!-- Mission Statistics -->
           <div class="mission-stats">
             <div class="stat-card">
@@ -305,13 +415,10 @@
               </select>
             </div>
           </div>
-          
+
           <div class="missions-list">
-            <div v-for="mission in filteredMissions" 
-                 :key="mission.id" 
-                 class="mission-item"
-                 :class="{ active: selectedMission?.id === mission.id }"
-                 @click="loadMission(mission)">
+            <div v-for="mission in filteredMissions" :key="mission.id" class="mission-item"
+              :class="{ active: selectedMission?.id === mission.id }" @click="loadMission(mission)">
               <div class="mission-info">
                 <div class="mission-header">
                   <span class="mission-name">{{ mission.name }}</span>
@@ -333,8 +440,8 @@
                 </div>
               </div>
               <div class="mission-actions">
-                <button class="action-btn success" @click.stop="executeMission(mission)" 
-                        :disabled="!isConnected || missionState.isActive" title="Execute">
+                <button class="action-btn success" @click.stop="executeMission(mission)"
+                  :disabled="!isConnected || missionState.isActive" title="Execute">
                   <i class="fas fa-play"></i>
                 </button>
                 <button class="action-btn danger" @click.stop="deleteMission(mission.id)" title="Delete">
@@ -342,7 +449,7 @@
                 </button>
               </div>
             </div>
-            
+
             <div v-if="filteredMissions.length === 0" class="empty-state">
               <i class="fas fa-rocket"></i>
               <p>No missions created yet</p>
@@ -361,7 +468,7 @@
               <span :class="['status-badge', missionState.status]">{{ missionState.status }}</span>
             </div>
           </div>
-          
+
           <div class="execution-content">
             <div class="progress-container">
               <div class="progress-header">
@@ -372,7 +479,7 @@
                 <div class="progress-fill" :style="{ width: missionProgress + '%' }"></div>
               </div>
             </div>
-            
+
             <div class="execution-info">
               <div class="execution-stats">
                 <div class="stat-item">
@@ -384,7 +491,7 @@
                   <div class="stat-value">{{ missionState.completedGoals }}/{{ missionState.totalSteps }}</div>
                 </div>
               </div>
-              
+
               <!-- Current Goal Info -->
               <div v-if="currentGoal && missionState.isActive" class="current-goal-info">
                 <div class="goal-title">
@@ -395,55 +502,57 @@
                   <span class="coord">X: {{ formatCoordinate(currentGoal.position_x) }}</span>
                   <span class="coord">Y: {{ formatCoordinate(currentGoal.position_y) }}</span>
                 </div>
+                <div v-if="currentGoal.next_goal_trigger && currentGoal.next_goal_trigger !== 'auto'"
+                  class="trigger-info">
+                  <i class="fas fa-clock"></i>
+                  <span>Waiting for: {{ currentGoal.next_goal_trigger }}</span>
+                  <button v-if="currentGoal.next_goal_trigger === 'manual' && currentTriggerState.manualConfirmation"
+                    class="small-btn" @click="confirmManualTrigger">
+                    Confirm
+                  </button>
+                </div>
               </div>
             </div>
-            
+
             <!-- Execution Controls dengan Tombol Run All Missions -->
             <div class="execution-controls">
               <!-- Tombol Run All Missions -->
               <div class="control-row">
-                <button @click="runAllMissions" 
-                        :disabled="!canRunAllMissions" 
-                        class="control-btn primary" title="Run All Missions">
+                <button @click="runAllMissions" :disabled="!canRunAllMissions" class="control-btn primary"
+                  title="Run All Missions">
                   <i class="fas fa-play-circle"></i>
                   <span class="btn-text">Run All Missions</span>
                 </button>
               </div>
-              
+
               <div class="control-row">
-                <button @click="pauseMission" 
-                        :disabled="!missionState.isActive || missionState.isPaused" 
-                        class="control-btn warning" title="Pause">
+                <button @click="pauseMission" :disabled="!missionState.isActive || missionState.isPaused"
+                  class="control-btn warning" title="Pause">
                   <i class="fas fa-pause"></i>
                   <span class="btn-text">Pause</span>
                 </button>
-                <button @click="resumeMission" 
-                        :disabled="!missionState.isActive || !missionState.isPaused" 
-                        class="control-btn success" title="Resume">
+                <button @click="resumeMission" :disabled="!missionState.isActive || !missionState.isPaused"
+                  class="control-btn success" title="Resume">
                   <i class="fas fa-play"></i>
                   <span class="btn-text">Resume</span>
                 </button>
-                <button @click="stopMission" 
-                        :disabled="!missionState.isActive && !isRunningAllMissions" 
-                        class="control-btn danger" title="Stop">
+                <button @click="stopMission" :disabled="!missionState.isActive && !isRunningAllMissions"
+                  class="control-btn danger" title="Stop">
                   <i class="fas fa-stop"></i>
                   <span class="btn-text">Stop</span>
                 </button>
               </div>
               <div class="control-row" v-if="missionState.isActive">
-                <button @click="skipToNextGoal" 
-                        :disabled="!missionState.isActive" 
-                        class="control-btn small" title="Skip">
+                <button @click="skipToNextGoal" :disabled="!missionState.isActive" class="control-btn small"
+                  title="Skip">
                   <i class="fas fa-forward"></i>
                 </button>
-                <button @click="retryCurrentGoal" 
-                        :disabled="!missionState.isActive" 
-                        class="control-btn small" title="Retry">
+                <button @click="retryCurrentGoal" :disabled="!missionState.isActive" class="control-btn small"
+                  title="Retry">
                   <i class="fas fa-redo"></i>
                 </button>
-                <button @click="cancelMission" 
-                        :disabled="!missionState.isActive" 
-                        class="control-btn small danger" title="Cancel">
+                <button @click="cancelMission" :disabled="!missionState.isActive" class="control-btn small danger"
+                  title="Cancel">
                   <i class="fas fa-times"></i>
                 </button>
               </div>
@@ -462,27 +571,63 @@
               <i class="fas fa-trash"></i>
             </button>
           </div>
-          
+
           <div class="logs-container">
-            <div v-for="(log, index) in missionLogs.slice(0, 10)" :key="index" 
-                 :class="['log-entry', log.type]">
+            <div v-for="(log, index) in missionLogs.slice(0, 10)" :key="index" :class="['log-entry', log.type]">
               <span class="log-icon">
                 <i :class="getLogIcon(log.type)"></i>
               </span>
               <span class="log-time">{{ log.time }}</span>
               <span class="log-message">{{ log.message }}</span>
             </div>
-            
+
             <div v-if="missionLogs.length === 0" class="empty-logs">
               <i class="fas fa-info-circle"></i>
               <p>No logs yet</p>
             </div>
-            
+
             <!-- Show more indicator -->
             <div v-if="missionLogs.length > 10" class="more-logs">
               <span>{{ missionLogs.length - 10 }} more logs...</span>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manual Confirmation Modal -->
+    <div v-if="currentTriggerState.manualConfirmation" class="manual-confirmation-overlay"
+      @click.self="currentTriggerState.manualConfirmation = false">
+      <div class="manual-confirmation-modal">
+        <h3 class="confirmation-title">
+          <i class="fas fa-hand-paper"></i> Manual Confirmation Required
+        </h3>
+        <p class="confirmation-message">
+          Step {{ missionState.currentStep }} is waiting for your confirmation to proceed to the next goal.
+        </p>
+
+        <div class="current-goal-info"
+          style="margin: 15px 0; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+          <div style="font-size: 14px; font-weight: 600; margin-bottom: 5px;">Current Goal:</div>
+          <div style="font-size: 12px;">
+            {{ currentGoal?.set_name || `Goal ${currentGoal?.sequence_number}` }}
+          </div>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">
+            X: {{ formatCoordinate(currentGoal?.position_x) }}, Y: {{ formatCoordinate(currentGoal?.position_y) }}
+          </div>
+        </div>
+
+        <div class="confirmation-buttons">
+          <button class="confirm-btn success" @click="confirmManualTrigger">
+            <i class="fas fa-check"></i> Confirm & Continue
+          </button>
+          <button class="confirm-btn danger" @click="skipToNextGoal">
+            <i class="fas fa-forward"></i> Skip This Goal
+          </button>
+        </div>
+
+        <div style="margin-top: 15px; font-size: 11px; color: var(--text-muted);">
+          <i class="fas fa-info-circle"></i> This modal will close automatically when confirmed
         </div>
       </div>
     </div>
@@ -498,7 +643,8 @@
         <div class="modal-body">
           <div class="form-group">
             <label>Mission Name</label>
-            <input type="text" v-model="newMission.name" placeholder="Enter mission name" class="modal-input" @keyup.enter="createNewMission">
+            <input type="text" v-model="newMission.name" placeholder="Enter mission name" class="modal-input"
+              @keyup.enter="createNewMission">
           </div>
           <div class="form-group">
             <label>Category</label>
@@ -511,7 +657,8 @@
           </div>
           <div class="form-group">
             <label>Description (Optional)</label>
-            <textarea v-model="newMission.description" placeholder="Enter mission description..." class="modal-input" rows="3"></textarea>
+            <textarea v-model="newMission.description" placeholder="Enter mission description..." class="modal-input"
+              rows="3"></textarea>
           </div>
         </div>
         <div class="modal-footer">
@@ -533,18 +680,19 @@
         <div class="modal-body">
           <div class="form-group">
             <label>Category Name *</label>
-            <input type="text" v-model="newCategory.name" placeholder="Enter category name" class="modal-input" @keyup.enter="saveCategory">
+            <input type="text" v-model="newCategory.name" placeholder="Enter category name" class="modal-input"
+              @keyup.enter="saveCategory">
           </div>
           <div class="form-group">
             <label>Description (Optional)</label>
-            <textarea v-model="newCategory.description" placeholder="Enter category description..." class="modal-input" rows="2"></textarea>
+            <textarea v-model="newCategory.description" placeholder="Enter category description..." class="modal-input"
+              rows="2"></textarea>
           </div>
           <div class="form-group">
             <label>Icon</label>
             <div class="icon-selection">
-              <div v-for="icon in availableIcons" :key="icon" 
-                   :class="['icon-option', { selected: newCategory.icon === icon }]"
-                   @click="newCategory.icon = icon">
+              <div v-for="icon in availableIcons" :key="icon"
+                :class="['icon-option', { selected: newCategory.icon === icon }]" @click="newCategory.icon = icon">
                 <i :class="icon"></i>
               </div>
             </div>
@@ -593,10 +741,16 @@ export default {
       isLoadingGoals: false,
       categories: [],
       selectedCategory: null,
+
+      // Goal set filtering
+      goalSets: [],
+      selectedGoalSet: null,
+      selectedGoalSetName: '',
       allGoals: [],
       goalSearch: '',
       currentPage: 1,
       itemsPerPage: 10,
+
       missions: [],
       missionFilter: 'all',
       selectedMission: null,
@@ -607,6 +761,7 @@ export default {
         category_id: '',
         goals: []
       },
+
       missionState: {
         status: 'idle',
         isActive: false,
@@ -617,9 +772,22 @@ export default {
         startedAt: null,
         elapsedTime: '00:00'
       },
+
       currentGoal: null,
       currentGoalTime: 0,
       goalStartTime: null,
+
+      // Trigger state
+      currentTriggerState: {
+        type: 'auto',
+        waiting: false,
+        timer: null,
+        manualConfirmation: false,
+        sensorValue: null,
+        timeoutTimer: null
+      },
+      manualConfirmCallback: null,
+
       missionLogs: [],
       showMissionModal: false,
       showCategoryModal: false,
@@ -648,10 +816,14 @@ export default {
         'fas fa-warehouse',
         'fas fa-industry'
       ],
+
+      // ROS topics
       goalTopic: null,
       goalStatusTopic: null,
       completionTimer: null,
       timeInterval: null,
+
+      // Batch missions
       isRunningAllMissions: false,
       batchMissions: [],
       currentBatchMissionIndex: 0,
@@ -660,28 +832,41 @@ export default {
   },
   computed: {
     filteredGoals() {
-      if (!this.goalSearch) return this.allGoals
-      const search = this.goalSearch.toLowerCase()
-      return this.allGoals.filter(goal => 
-        (goal.set_name && goal.set_name.toLowerCase().includes(search)) ||
-        (goal.map_name && goal.map_name.toLowerCase().includes(search)) ||
-        goal.sequence_number?.toString().includes(search) ||
-        this.formatCoordinate(goal.position_x).includes(search) ||
-        this.formatCoordinate(goal.position_y).includes(search)
-      )
+      let filtered = this.allGoals
+
+      // Filter by selected goal set
+      if (this.selectedGoalSet) {
+        filtered = filtered.filter(goal => goal.goal_set_id === this.selectedGoalSet)
+      }
+
+      // Filter by search term
+      if (this.goalSearch) {
+        const search = this.goalSearch.toLowerCase()
+        filtered = filtered.filter(goal =>
+          (goal.set_name && goal.set_name.toLowerCase().includes(search)) ||
+          (goal.map_name && goal.map_name.toLowerCase().includes(search)) ||
+          goal.sequence_number?.toString().includes(search) ||
+          this.formatCoordinate(goal.position_x).includes(search) ||
+          this.formatCoordinate(goal.position_y).includes(search)
+        )
+      }
+
+      return filtered
     },
+
     paginatedGoals() {
       const start = (this.currentPage - 1) * this.itemsPerPage
       const end = start + this.itemsPerPage
       return this.filteredGoals.slice(start, end)
     },
+
     totalPages() {
       return Math.ceil(this.filteredGoals.length / this.itemsPerPage)
     },
+
     filteredMissions() {
       if (this.missionFilter === 'all') return this.missions
       if (this.missionFilter === 'recent') {
-        // Return missions created in the last 7 days
         const oneWeekAgo = new Date()
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7)
         return this.missions.filter(mission => {
@@ -694,33 +879,40 @@ export default {
       }
       return this.missions
     },
+
     missionProgress() {
       if (this.missionState.totalSteps === 0) return 0
       return Math.round((this.missionState.completedGoals / this.missionState.totalSteps) * 100)
     },
+
     canSaveMission() {
-      return this.currentMission.name.trim() && 
-             this.currentMission.category_id && 
-             this.currentMission.goals.length > 0
+      return this.currentMission.name.trim() &&
+        this.currentMission.category_id &&
+        this.currentMission.goals.length > 0
     },
+
     canStartMission() {
-      return this.isConnected && 
-             this.currentMission.goals.length > 0 && 
-             !this.missionState.isActive
+      return this.isConnected &&
+        this.currentMission.goals.length > 0 &&
+        !this.missionState.isActive
     },
+
     canCreateMission() {
       return this.newMission.name.trim() && this.newMission.category_id
     },
+
     canSaveCategory() {
       return this.newCategory.name.trim()
     },
+
     canRunAllMissions() {
-      return this.isConnected && 
-             this.filteredMissions.length > 0 && 
-             !this.missionState.isActive &&
-             !this.isRunningAllMissions
+      return this.isConnected &&
+        this.filteredMissions.length > 0 &&
+        !this.missionState.isActive &&
+        !this.isRunningAllMissions
     }
   },
+
   watch: {
     isConnected(newVal) {
       if (newVal) {
@@ -728,16 +920,18 @@ export default {
       }
     }
   },
+
   mounted() {
     this.loadInitialData()
     if (this.isConnected) {
       this.setupROSTopics()
     }
-    
+
     this.timeInterval = setInterval(() => {
       this.updateElapsedTime()
     }, 1000)
   },
+
   beforeUnmount() {
     this.stopMission()
     this.stopAllMissions()
@@ -751,41 +945,43 @@ export default {
       clearInterval(this.batchCompletionCheck)
     }
   },
+
   methods: {
     setupROSTopics() {
       if (!this.ros) {
         this.addLog('error', 'ROS connection not available')
         return
       }
-      
+
       try {
         this.goalTopic = new ROSLIB.Topic({
           ros: this.ros,
           name: '/goal_pose',
           messageType: 'geometry_msgs/msg/PoseStamped'
         })
-        
+
         this.goalStatusTopic = new ROSLIB.Topic({
           ros: this.ros,
           name: '/move_base/feedback',
           messageType: 'move_base_msgs/msg/MoveBaseActionFeedback'
         })
-        
+
         this.goalStatusTopic.subscribe((message) => {
           this.handleGoalStatusUpdate(message)
         })
-        
+
         this.addLog('success', 'ROS topics initialized')
       } catch (error) {
         this.addLog('error', `Failed to setup ROS topics: ${error.message}`)
       }
     },
-    
+
     async loadInitialData() {
       this.isLoading = true
       try {
         await Promise.all([
           this.loadCategories(),
+          this.loadGoalSets(),
           this.loadGoals(),
           this.loadMissions()
         ])
@@ -796,7 +992,7 @@ export default {
         this.isLoading = false
       }
     },
-    
+
     async loadCategories() {
       try {
         const response = await fetch('http://localhost:3000/api/categories')
@@ -813,42 +1009,78 @@ export default {
       } catch (error) {
         console.error('Error loading categories:', error)
         this.addLog('error', `Failed to load categories: ${error.message}`)
-        // Default category jika gagal load
         this.categories = [
           { id: 1, name: 'Default', icon: 'fas fa-folder', color: '#3b82f6', mission_count: 0 }
         ]
       }
     },
-    
-    async loadGoals() {
-      this.isLoadingGoals = true
+
+    async loadGoalSets() {
       try {
-        // Load all goal sets first
         const response = await fetch('http://localhost:3000/api/goals/sets')
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)
         }
-        
+
         const result = await response.json()
-        
+        if (result.success) {
+          this.goalSets = result.goalSets
+          this.addLog('info', `Loaded ${this.goalSets.length} goal sets`)
+        } else {
+          throw new Error(result.error || 'Failed to load goal sets')
+        }
+      } catch (error) {
+        console.error('Error loading goal sets:', error)
+        this.addLog('error', `Failed to load goal sets: ${error.message}`)
+        this.goalSets = []
+      }
+    },
+
+    onGoalSetChange() {
+      if (this.selectedGoalSet) {
+        const selectedSet = this.goalSets.find(set => set.id === this.selectedGoalSet)
+        this.selectedGoalSetName = selectedSet?.set_name || `Set ${this.selectedGoalSet}`
+        this.addLog('info', `Selected goal set: ${this.selectedGoalSetName}`)
+      } else {
+        this.selectedGoalSetName = ''
+        this.addLog('info', 'Showing all goal sets')
+      }
+
+      this.currentPage = 1
+    },
+
+    clearGoalSetSelection() {
+      this.selectedGoalSet = null
+      this.selectedGoalSetName = ''
+      this.currentPage = 1
+      this.addLog('info', 'Cleared goal set filter')
+    },
+
+    async loadGoals() {
+      this.isLoadingGoals = true
+      try {
+        const response = await fetch('http://localhost:3000/api/goals/sets')
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+
+        const result = await response.json()
+
         if (result.success) {
           this.allGoals = []
-          
-          // Load goals for each goal set
+
           for (const goalSet of result.goalSets) {
             try {
               const setResponse = await fetch(`http://localhost:3000/api/goals/set/id/${goalSet.id}`)
               if (setResponse.ok) {
                 const setResult = await setResponse.json()
-                
+
                 if (setResult.success && setResult.goals) {
-                  // Process each goal to ensure data consistency
                   setResult.goals.forEach(goal => {
                     const processedGoal = {
                       id: goal.id,
                       goal_set_id: goal.goal_set_id,
                       sequence_number: goal.sequence_number || 1,
-                      // Gunakan position_x dan position_y dari database
                       position_x: this.parseCoordinate(goal.position_x),
                       position_y: this.parseCoordinate(goal.position_y),
                       orientation_z: this.parseCoordinate(goal.orientation_z),
@@ -868,7 +1100,7 @@ export default {
               this.addLog('error', `Failed to load goals for set ${goalSet.set_name}`)
             }
           }
-          
+
           this.addLog('info', `Loaded ${this.allGoals.length} goals from database`)
         } else {
           throw new Error(result.error || 'Failed to load goal sets')
@@ -881,33 +1113,29 @@ export default {
         this.isLoadingGoals = false
       }
     },
-    
+
     parseCoordinate(value) {
       if (value === null || value === undefined) return 0
       const num = parseFloat(value)
       return isNaN(num) ? 0 : num
     },
-    
+
     formatCoordinate(value) {
       const num = this.parseCoordinate(value)
       return num.toFixed(2)
     },
-    
+
     async loadMissions() {
       try {
         const response = await fetch('http://localhost:3000/api/missions')
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)
         }
-        
+
         const result = await response.json()
-        
+
         if (result.success) {
-          this.missions = result.missions.map(mission => ({
-            ...mission,
-            goal_count: mission.goal_count || (mission.goals ? mission.goals.length : 0)
-          }))
-          
+          this.missions = result.missions || []
           this.addLog('info', `Loaded ${this.missions.length} missions`)
         } else {
           throw new Error(result.error || 'Failed to load missions')
@@ -918,11 +1146,51 @@ export default {
         this.missions = []
       }
     },
-    
+
+    async loadMission(mission) {
+      try {
+        console.log('Loading mission with triggers:', mission.id)
+        const response = await fetch(`http://localhost:3000/api/missions/with-triggers/${mission.id}`)
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+
+        const result = await response.json()
+        console.log('Mission loaded:', result)
+
+        if (result.success) {
+          this.selectedMission = mission
+          this.currentMission = {
+            id: mission.id,
+            name: mission.name,
+            description: mission.description || '',
+            category_id: mission.category_id,
+            goals: (result.mission.goals || []).map(goal => ({
+              ...goal,
+              position_x: this.parseCoordinate(goal.position_x),
+              position_y: this.parseCoordinate(goal.position_y),
+              next_goal_trigger: goal.next_goal_trigger || 'auto',
+              wait_time: goal.wait_time || 5,
+              sensor_type: goal.sensor_type || '',
+              sensor_condition: goal.sensor_condition || '',
+              timeout: goal.timeout || 60,
+              retry_count: goal.retry_count || 0,
+              on_failure: goal.on_failure || 'skip',
+              showAdvanced: false
+            }))
+          }
+          this.addLog('success', `Loaded mission: ${mission.name}`)
+        }
+      } catch (error) {
+        console.error('Error loading mission:', error)
+        this.addLog('error', `Failed to load mission: ${error.message}`)
+      }
+    },
+
     refreshData() {
       this.loadInitialData()
     },
-    
+
     showNewCategoryModal() {
       this.newCategory = {
         id: null,
@@ -934,41 +1202,41 @@ export default {
       this.editingCategory = false
       this.showCategoryModal = true
     },
-    
+
     editCategory(category) {
       this.newCategory = { ...category }
       this.editingCategory = true
       this.showCategoryModal = true
     },
-    
+
     async saveCategory() {
       if (!this.canSaveCategory) {
         this.addLog('warning', 'Please enter a category name')
         return
       }
-      
+
       try {
-        const url = this.editingCategory 
+        const url = this.editingCategory
           ? `http://localhost:3000/api/categories/${this.newCategory.id}`
           : 'http://localhost:3000/api/categories'
-        
+
         const method = this.editingCategory ? 'PUT' : 'POST'
-        
+
         const response = await fetch(url, {
           method,
-          headers: { 
+          headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(this.newCategory)
         })
-        
+
         if (!response.ok) {
           const error = await response.json()
           throw new Error(error.error || 'Failed to save category')
         }
-        
+
         const result = await response.json()
-        
+
         if (result.success) {
           this.addLog('success', `Category "${this.newCategory.name}" ${this.editingCategory ? 'updated' : 'created'}`)
           await this.loadCategories()
@@ -979,24 +1247,24 @@ export default {
         this.addLog('error', `Failed to save category: ${error.message}`)
       }
     },
-    
+
     async deleteCategory(categoryId) {
       if (!confirm('Are you sure you want to delete this category? All missions in this category will be moved to Default category.')) {
         return
       }
-      
+
       try {
         const response = await fetch(`http://localhost:3000/api/categories/${categoryId}`, {
           method: 'DELETE'
         })
-        
+
         if (!response.ok) {
           const error = await response.json()
           throw new Error(error.error || 'Failed to delete category')
         }
-        
+
         const result = await response.json()
-        
+
         if (result.success) {
           this.addLog('success', 'Category deleted successfully')
           await this.loadCategories()
@@ -1009,36 +1277,44 @@ export default {
         this.addLog('error', `Failed to delete category: ${error.message}`)
       }
     },
-    
+
     selectCategory(categoryId) {
       this.selectedCategory = categoryId
     },
-    
+
     getCategoryIcon(categoryId) {
       const category = this.categories.find(c => c.id === categoryId)
       return category?.icon || 'fas fa-folder'
     },
-    
+
     getCategoryName(categoryId) {
       const category = this.categories.find(c => c.id === categoryId)
       return category?.name || 'Uncategorized'
     },
-    
+
     previewGoal(goal) {
       this.addLog('info', `Previewing goal: X=${this.formatCoordinate(goal.position_x)}, Y=${this.formatCoordinate(goal.position_y)}`)
       this.$emit('goal-preview', goal)
     },
-    
+
     isGoalInMission(goalId) {
       return this.currentMission.goals.some(g => g.id === goalId)
     },
-    
+
     addGoalToCurrentMission(goal) {
       if (!this.isGoalInMission(goal.id)) {
         const goalCopy = {
           ...goal,
           position_x: this.parseCoordinate(goal.position_x),
-          position_y: this.parseCoordinate(goal.position_y)
+          position_y: this.parseCoordinate(goal.position_y),
+          next_goal_trigger: 'auto',
+          wait_time: 5,
+          sensor_type: '',
+          sensor_condition: '',
+          timeout: 60,
+          retry_count: 0,
+          on_failure: 'skip',
+          showAdvanced: false
         }
         this.currentMission.goals.push(goalCopy)
         this.addLog('success', `Added goal to mission: X=${this.formatCoordinate(goal.position_x)}, Y=${this.formatCoordinate(goal.position_y)}`)
@@ -1046,13 +1322,13 @@ export default {
         this.addLog('warning', 'Goal already in mission')
       }
     },
-    
+
     removeGoalFromMission(index) {
       const removedGoal = this.currentMission.goals[index]
       this.currentMission.goals.splice(index, 1)
       this.addLog('info', `Removed goal from mission`)
     },
-    
+
     moveGoalUp(index) {
       if (index > 0) {
         const goal = this.currentMission.goals[index]
@@ -1060,7 +1336,7 @@ export default {
         this.currentMission.goals.splice(index - 1, 0, goal)
       }
     },
-    
+
     moveGoalDown(index) {
       if (index < this.currentMission.goals.length - 1) {
         const goal = this.currentMission.goals[index]
@@ -1068,29 +1344,28 @@ export default {
         this.currentMission.goals.splice(index + 1, 0, goal)
       }
     },
-    
+
     clearMissionSequence() {
       if (confirm('Clear all goals from mission sequence?')) {
         this.currentMission.goals = []
         this.addLog('info', 'Cleared mission sequence')
       }
     },
-    
+
     optimizeSequence() {
       if (this.currentMission.goals.length < 2) {
         this.addLog('warning', 'Need at least 2 goals to optimize')
         return
       }
-      
-      // Simple nearest neighbor optimization
+
       const optimized = [this.currentMission.goals[0]]
       const remaining = [...this.currentMission.goals.slice(1)]
-      
+
       while (remaining.length > 0) {
         const lastGoal = optimized[optimized.length - 1]
         let nearestIndex = 0
         let nearestDistance = this.calculateDistance(lastGoal, remaining[0])
-        
+
         for (let i = 1; i < remaining.length; i++) {
           const distance = this.calculateDistance(lastGoal, remaining[i])
           if (distance < nearestDistance) {
@@ -1098,38 +1373,38 @@ export default {
             nearestIndex = i
           }
         }
-        
+
         optimized.push(remaining[nearestIndex])
         remaining.splice(nearestIndex, 1)
       }
-      
+
       this.currentMission.goals = optimized
       this.addLog('success', 'Optimized mission sequence for shortest path')
     },
-    
+
     calculateDistance(goal1, goal2) {
       const dx = this.parseCoordinate(goal2.position_x) - this.parseCoordinate(goal1.position_x)
       const dy = this.parseCoordinate(goal2.position_y) - this.parseCoordinate(goal1.position_y)
       return Math.sqrt(dx * dx + dy * dy)
     },
-    
+
     calculateTotalDistance() {
       if (this.currentMission.goals.length < 2) return 0
-      
+
       let total = 0
       for (let i = 1; i < this.currentMission.goals.length; i++) {
-        total += this.calculateDistance(this.currentMission.goals[i-1], this.currentMission.goals[i])
+        total += this.calculateDistance(this.currentMission.goals[i - 1], this.currentMission.goals[i])
       }
       return total
     },
-    
+
     estimateMissionTime() {
       const distance = this.calculateTotalDistance()
-      const avgSpeed = 0.5 // meters per second
+      const avgSpeed = 0.5
       const timeSeconds = distance / avgSpeed
-      const setupTime = 5 // seconds per goal
+      const setupTime = 5
       const totalTime = timeSeconds + (this.currentMission.goals.length * setupTime)
-      
+
       if (totalTime < 60) {
         return `${Math.round(totalTime)}s`
       } else if (totalTime < 3600) {
@@ -1140,7 +1415,7 @@ export default {
         return `${hours}h ${minutes}m`
       }
     },
-    
+
     showNewMissionModal() {
       this.newMission = {
         name: '',
@@ -1149,129 +1424,214 @@ export default {
       }
       this.showMissionModal = true
     },
-    
+
     async createNewMission() {
+      console.log('createNewMission called', this.newMission)
+
       if (!this.canCreateMission) {
+        console.log('Validation failed')
         this.addLog('warning', 'Please enter mission name and select category')
         return
       }
-      
+
       try {
         const missionData = {
-          name: this.newMission.name,
-          description: this.newMission.description,
-          category_id: this.newMission.category_id,
-          goals: [] // Start with empty goals
+          name: this.newMission.name.trim(),
+          description: this.newMission.description?.trim() || '',
+          category_id: parseInt(this.newMission.category_id),
+          goals: [] // Kosong untuk mission baru
         }
-        
-        const response = await fetch('http://localhost:3000/api/missions', {
+
+        console.log('Sending mission data:', missionData)
+
+        // Coba endpoint tanpa goals terlebih dahulu
+        let response = await fetch('http://localhost:3000/api/missions', {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(missionData)
         })
-        
+
+        // Jika gagal dengan endpoint pertama, coba endpoint kedua
         if (!response.ok) {
-          const error = await response.json()
-          throw new Error(error.error || 'Failed to create mission')
+          response = await fetch('http://localhost:3000/api/missions/with-triggers', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(missionData)
+          })
         }
-        
+
         const result = await response.json()
-        
+        console.log('API Response:', result)
+
+        if (!response.ok) {
+          throw new Error(result.error || `HTTP ${response.status}`)
+        }
+
         if (result.success) {
           this.addLog('success', `Mission "${missionData.name}" created successfully`)
           await this.loadMissions()
           this.closeModal()
-          
-          // Load the newly created mission
+
+          // Load mission yang baru dibuat
           if (result.mission) {
-            this.loadMission(result.mission)
+            await this.loadMission(result.mission)
           }
+        } else {
+          throw new Error(result.error || 'Unknown error')
         }
       } catch (error) {
-        console.error('Error creating mission:', error)
+        console.error('Full error creating mission:', error)
+        console.error('Stack trace:', error.stack)
         this.addLog('error', `Failed to create mission: ${error.message}`)
+
+        // Tampilkan user-friendly message
+        if (error.message.includes('at least one goal')) {
+          this.addLog('warning', 'Created mission with empty goals list. You can add goals later.')
+
+          // Fallback: Buat mission dengan dummy goal jika diperlukan
+          await this.createMissionWithDummyGoal()
+        }
       }
     },
-    
-    async loadMission(mission) {
+
+    // Method fallback untuk membuat mission dengan dummy goal
+    async createMissionWithDummyGoal() {
       try {
-        const response = await fetch(`http://localhost:3000/api/missions/${mission.id}`)
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`)
+        const missionData = {
+          name: this.newMission.name.trim(),
+          description: this.newMission.description?.trim() || '',
+          category_id: parseInt(this.newMission.category_id),
+          goals: [{
+            id: 0, // Temporary ID
+            goal_set_id: 1, // Default goal set
+            sequence_number: 1,
+            position_x: 0.0,
+            position_y: 0.0,
+            orientation_z: 0.0,
+            orientation_w: 1.0,
+            tolerance_xy: 0.5,
+            tolerance_yaw: 0.1,
+            next_goal_trigger: 'auto',
+            wait_time: 5,
+            sensor_type: '',
+            sensor_condition: '',
+            timeout: 60,
+            retry_count: 0,
+            on_failure: 'skip'
+          }]
         }
-        
+
+        const response = await fetch('http://localhost:3000/api/missions/with-triggers', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(missionData)
+        })
+
         const result = await response.json()
-        
+
         if (result.success) {
-          this.selectedMission = mission
-          this.currentMission = {
-            id: mission.id,
-            name: mission.name,
-            description: mission.description || '',
-            category_id: mission.category_id,
-            goals: (result.mission.goals || []).map(goal => ({
-              ...goal,
-              position_x: this.parseCoordinate(goal.position_x),
-              position_y: this.parseCoordinate(goal.position_y)
-            }))
+          this.addLog('success', `Mission "${missionData.name}" created with placeholder goal`)
+          await this.loadMissions()
+          this.closeModal()
+
+          if (result.mission) {
+            await this.loadMission(result.mission)
           }
-          this.addLog('success', `Loaded mission: ${mission.name}`)
         }
-      } catch (error) {
-        console.error('Error loading mission:', error)
-        this.addLog('error', `Failed to load mission: ${error.message}`)
+      } catch (fallbackError) {
+        console.error('Fallback creation failed:', fallbackError)
       }
     },
-    
+
     async saveMission() {
       if (!this.canSaveMission) {
         this.addLog('warning', 'Please enter mission name, select category, and add at least one goal')
         return
       }
-      
+
       try {
+        // Prepare mission data with triggers
         const missionData = {
           name: this.currentMission.name,
           description: this.currentMission.description,
           category_id: this.currentMission.category_id,
-          goals: this.currentMission.goals.map(goal => ({
+          goals: this.currentMission.goals.map((goal, index) => ({
             id: goal.id,
+            goal_set_id: goal.goal_set_id,
+            sequence_number: goal.sequence_number || (index + 1),
             position_x: this.parseCoordinate(goal.position_x),
-            position_y: this.parseCoordinate(goal.position_y)
+            position_y: this.parseCoordinate(goal.position_y),
+            orientation_z: this.parseCoordinate(goal.orientation_z),
+            orientation_w: this.parseCoordinate(goal.orientation_w || 1.0),
+            tolerance_xy: this.parseCoordinate(goal.tolerance_xy),
+            tolerance_yaw: this.parseCoordinate(goal.tolerance_yaw),
+            next_goal_trigger: goal.next_goal_trigger || 'auto',
+            wait_time: goal.wait_time || 5,
+            sensor_type: goal.sensor_type || '',
+            sensor_condition: goal.sensor_condition || '',
+            timeout: goal.timeout || 60,
+            retry_count: goal.retry_count || 0,
+            on_failure: goal.on_failure || 'skip'
           }))
         }
-        
-        const url = this.currentMission.id 
-          ? `http://localhost:3000/api/missions/${this.currentMission.id}`
-          : 'http://localhost:3000/api/missions'
-        
+
+        const url = this.currentMission.id
+          ? `http://localhost:3000/api/missions/with-triggers/${this.currentMission.id}`
+          : 'http://localhost:3000/api/missions/with-triggers'
+
         const method = this.currentMission.id ? 'PUT' : 'POST'
-        
+
+        console.log('Saving mission:', { url, method, missionData })
+
         const response = await fetch(url, {
           method,
-          headers: { 
+          headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(missionData)
         })
-        
-        if (!response.ok) {
-          const error = await response.json()
-          throw new Error(error.error || 'Failed to save mission')
-        }
-        
+
         const result = await response.json()
-        
+        console.log('Save mission response:', result)
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to save mission')
+        }
+
         if (result.success) {
           const action = this.currentMission.id ? 'updated' : 'saved'
           this.addLog('success', `Mission "${missionData.name}" ${action} successfully`)
+
+          // Reload missions
           await this.loadMissions()
-          
-          // Update current mission ID if it was a new mission
-          if (!this.currentMission.id && result.mission) {
-            this.currentMission.id = result.mission.id
+
+          // Update current mission data with the returned data
+          if (result.mission) {
+            this.currentMission = {
+              id: result.mission.id,
+              name: result.mission.name,
+              description: result.mission.description || '',
+              category_id: result.mission.category_id,
+              goals: (result.mission.goals || []).map(goal => ({
+                ...goal,
+                position_x: this.parseCoordinate(goal.position_x),
+                position_y: this.parseCoordinate(goal.position_y),
+                next_goal_trigger: goal.next_goal_trigger || 'auto',
+                wait_time: goal.wait_time || 5,
+                sensor_type: goal.sensor_type || '',
+                sensor_condition: goal.sensor_condition || '',
+                timeout: goal.timeout || 60,
+                retry_count: goal.retry_count || 0,
+                on_failure: goal.on_failure || 'skip',
+                showAdvanced: false
+              }))
+            }
             this.selectedMission = result.mission
           }
         }
@@ -1280,26 +1640,26 @@ export default {
         this.addLog('error', `Failed to save mission: ${error.message}`)
       }
     },
-    
+
     async deleteMission(missionId) {
       if (!confirm('Are you sure you want to delete this mission?')) return
-      
+
       try {
         const response = await fetch(`http://localhost:3000/api/missions/${missionId}`, {
           method: 'DELETE'
         })
-        
+
         if (!response.ok) {
           const error = await response.json()
           throw new Error(error.error || 'Failed to delete mission')
         }
-        
+
         const result = await response.json()
-        
+
         if (result.success) {
           this.addLog('success', 'Mission deleted successfully')
           await this.loadMissions()
-          
+
           if (this.selectedMission?.id === missionId) {
             this.selectedMission = null
             this.currentMission = {
@@ -1316,23 +1676,22 @@ export default {
         this.addLog('error', `Failed to delete mission: ${error.message}`)
       }
     },
-    
+
     async executeMission(mission) {
       if (!this.isConnected) {
         this.addLog('error', 'Cannot execute mission: ROS not connected')
         return
       }
-      
+
       if (!this.selectedMission || this.selectedMission.id !== mission.id) {
         await this.loadMission(mission)
       }
-      
+
       if (this.currentMission.goals.length === 0) {
         this.addLog('error', 'Cannot execute mission: No goals in mission')
         return
       }
-      
-      // Update last_executed timestamp
+
       try {
         await fetch(`http://localhost:3000/api/missions/${mission.id}/execute`, {
           method: 'PATCH',
@@ -1341,21 +1700,33 @@ export default {
       } catch (error) {
         console.error('Failed to update mission timestamp:', error)
       }
-      
+
       this.startMissionExecution()
     },
-    
+
+    // ====== TRIGGER-BASED MISSION EXECUTION ======
+
     startMissionExecution() {
       if (this.currentMission.goals.length === 0) {
         this.addLog('error', 'Cannot start mission: No goals in mission')
         return
       }
-      
+
       if (this.missionState.isActive) {
         this.addLog('warning', 'Mission is already active')
         return
       }
-      
+
+      // Initialize trigger properties untuk setiap goal jika belum ada
+      this.currentMission.goals.forEach(goal => {
+        if (!goal.next_goal_trigger) {
+          goal.next_goal_trigger = 'auto'
+        }
+        if (!goal.showAdvanced) {
+          goal.showAdvanced = false
+        }
+      })
+
       this.missionState = {
         status: 'executing',
         isActive: true,
@@ -1366,48 +1737,47 @@ export default {
         startedAt: new Date().toLocaleTimeString(),
         elapsedTime: '00:00'
       }
-      
+
       this.goalStartTime = Date.now()
-      
+
       this.addLog('info', `🚀 Mission "${this.currentMission.name}" started`)
-      this.addLog('info', `📊 Executing ${this.currentMission.goals.length} goals`)
-      
-      this.executeCurrentGoal()
+      this.addLog('info', `📊 Executing ${this.currentMission.goals.length} goals with triggers`)
+
+      this.executeCurrentGoalWithTrigger()
     },
-    
-    async executeCurrentGoal() {
+
+    async executeCurrentGoalWithTrigger() {
       if (!this.missionState.isActive || this.missionState.isPaused) return
-      
+
       if (this.missionState.currentStep > this.currentMission.goals.length) {
         this.completeMission()
         return
       }
-      
+
       const goal = this.currentMission.goals[this.missionState.currentStep - 1]
       this.currentGoal = goal
       this.goalStartTime = Date.now()
       this.currentGoalTime = 0
-      
-      this.addLog('info', `🎯 Step ${this.missionState.currentStep}: X=${this.formatCoordinate(goal.position_x)}, Y=${this.formatCoordinate(goal.position_y)}`)
-      
+
+      this.addLog('info', `🎯 Step ${this.missionState.currentStep}: ${goal.set_name || `Goal ${goal.sequence_number}`}`)
+
       try {
         await this.sendGoalToRobot(goal)
         this.addLog('success', `✅ Goal sent to robot`)
-        
-        // Simulate goal completion (replace with actual ROS feedback)
+
         this.startGoalMonitoring()
-        
+
       } catch (error) {
         this.addLog('error', `❌ Failed to execute goal: ${error.message}`)
         this.handleGoalFailure()
       }
     },
-    
+
     async sendGoalToRobot(goal) {
       if (!this.goalTopic || !this.isConnected) {
         throw new Error('ROS not connected')
       }
-      
+
       return new Promise((resolve, reject) => {
         try {
           const goalMessage = new ROSLIB.Message({
@@ -1421,15 +1791,15 @@ export default {
                 y: this.parseCoordinate(goal.position_y),
                 z: 0.0
               },
-              orientation: { 
-                x: 0.0, 
-                y: 0.0, 
-                z: this.parseCoordinate(goal.orientation_z), 
+              orientation: {
+                x: 0.0,
+                y: 0.0,
+                z: this.parseCoordinate(goal.orientation_z),
                 w: this.parseCoordinate(goal.orientation_w || 1.0)
               }
             }
           })
-          
+
           this.goalTopic.publish(goalMessage)
           resolve()
         } catch (error) {
@@ -1437,103 +1807,265 @@ export default {
         }
       })
     },
-    
+
     startGoalMonitoring() {
       if (this.completionTimer) {
         clearTimeout(this.completionTimer)
       }
-      
-      // Simulate goal completion after 3-5 seconds
+
       const completionTime = 3000 + Math.random() * 2000
       this.completionTimer = setTimeout(() => {
         this.handleGoalCompletion()
       }, completionTime)
     },
-    
+
     stopGoalMonitoring() {
       if (this.completionTimer) {
         clearTimeout(this.completionTimer)
         this.completionTimer = null
       }
     },
-    
+
     handleGoalStatusUpdate(message) {
-      // Handle actual ROS feedback here
       console.log('Goal status update:', message)
     },
-    
-    handleGoalCompletion() {
+
+    async handleGoalCompletion() {
       if (!this.missionState.isActive) return
-      
-      this.addLog('success', `✅ Step ${this.missionState.currentStep} completed`)
-      this.missionState.completedGoals++
-      this.missionState.currentStep++
-      
-      this.stopGoalMonitoring()
-      
-      if (this.missionState.currentStep > this.currentMission.goals.length) {
-        this.completeMission()
+
+      const currentGoal = this.currentMission.goals[this.missionState.currentStep - 1]
+
+      // Check trigger sebelum lanjut ke goal berikutnya
+      const shouldProceed = await this.checkGoalTrigger(currentGoal)
+
+      if (shouldProceed) {
+        this.addLog('success', `✅ Step ${this.missionState.currentStep} completed`)
+        this.missionState.completedGoals++
+        this.missionState.currentStep++
+
+        this.stopGoalMonitoring()
+        this.clearTriggerState()
+
+        if (this.missionState.currentStep > this.currentMission.goals.length) {
+          this.completeMission()
+        } else {
+          setTimeout(() => {
+            this.executeCurrentGoalWithTrigger()
+          }, 1000)
+        }
       } else {
-        // Move to next goal after a short delay
-        setTimeout(() => {
-          this.executeCurrentGoal()
-        }, 1000)
+        this.handleTriggerFailure(currentGoal)
       }
     },
-    
+
+    async checkGoalTrigger(goal) {
+      if (!goal.next_goal_trigger || goal.next_goal_trigger === 'auto') {
+        return true
+      }
+
+      this.currentTriggerState = {
+        type: goal.next_goal_trigger,
+        waiting: true,
+        timer: null,
+        manualConfirmation: false,
+        sensorValue: null,
+        timeoutTimer: null
+      }
+
+      this.addLog('info', `⚙️ Waiting for trigger: ${goal.next_goal_trigger}`)
+
+      switch (goal.next_goal_trigger) {
+        case 'timer':
+          return await this.waitForTimer(goal.wait_time || 5)
+
+        case 'manual':
+          return await this.waitForManualConfirmation(goal)
+
+        case 'sensor':
+          return await this.waitForSensorCondition(goal)
+
+        default:
+          return true
+      }
+    },
+
+    async waitForTimer(seconds) {
+      return new Promise((resolve) => {
+        this.addLog('info', `⏱️ Waiting ${seconds} seconds...`)
+
+        let remaining = seconds
+        const countdown = setInterval(() => {
+          remaining--
+          if (remaining <= 0) {
+            clearInterval(countdown)
+            this.addLog('success', `✅ Timer completed`)
+            resolve(true)
+          }
+        }, 1000)
+
+        this.currentTriggerState.timer = setTimeout(() => {
+          clearInterval(countdown)
+          resolve(true)
+        }, seconds * 1000)
+      })
+    },
+
+    async waitForManualConfirmation(goal) {
+      return new Promise((resolve) => {
+        this.addLog('warning', `⏸️ Waiting for manual confirmation...`)
+        this.currentTriggerState.manualConfirmation = true
+
+        const confirmAction = () => {
+          this.addLog('success', `✅ Manual confirmation received`)
+          this.currentTriggerState.manualConfirmation = false
+          resolve(true)
+        }
+
+        this.manualConfirmCallback = confirmAction
+
+        if (goal.timeout) {
+          this.currentTriggerState.timeoutTimer = setTimeout(() => {
+            this.addLog('warning', `⏰ Manual confirmation timeout`)
+            this.currentTriggerState.manualConfirmation = false
+            resolve(false)
+          }, goal.timeout * 1000)
+        }
+      })
+    },
+
+    async waitForSensorCondition(goal) {
+      return new Promise((resolve) => {
+        this.addLog('info', `📡 Waiting for sensor condition: ${goal.sensor_condition}`)
+
+        const checkCondition = () => {
+          setTimeout(() => {
+            this.addLog('success', `✅ Sensor condition met`)
+            resolve(true)
+          }, 2000)
+        }
+
+        checkCondition()
+
+        if (goal.timeout) {
+          this.currentTriggerState.timeoutTimer = setTimeout(() => {
+            this.addLog('warning', `⏰ Sensor condition timeout`)
+            resolve(false)
+          }, goal.timeout * 1000)
+        }
+      })
+    },
+
+    clearTriggerState() {
+      if (this.currentTriggerState.timer) {
+        clearTimeout(this.currentTriggerState.timer)
+      }
+      if (this.currentTriggerState.timeoutTimer) {
+        clearTimeout(this.currentTriggerState.timeoutTimer)
+      }
+      this.currentTriggerState = {
+        type: 'auto',
+        waiting: false,
+        timer: null,
+        manualConfirmation: false,
+        sensorValue: null,
+        timeoutTimer: null
+      }
+    },
+
+    confirmManualTrigger() {
+      if (this.manualConfirmCallback) {
+        this.manualConfirmCallback()
+        this.manualConfirmCallback = null
+      }
+    },
+
+    handleTriggerFailure(goal) {
+      const action = goal.on_failure || 'skip'
+
+      switch (action) {
+        case 'skip':
+          this.addLog('warning', `⏭️ Trigger failed, skipping to next goal`)
+          this.missionState.currentStep++
+          this.executeCurrentGoalWithTrigger()
+          break
+
+        case 'retry':
+          if (goal.retry_count && goal.retry_count > 0) {
+            goal.retry_count--
+            this.addLog('warning', `🔄 Trigger failed, retrying...`)
+            this.executeCurrentGoalWithTrigger()
+          } else {
+            this.addLog('error', `❌ Max retries reached, skipping`)
+            this.missionState.currentStep++
+            this.executeCurrentGoalWithTrigger()
+          }
+          break
+
+        case 'stop':
+          this.addLog('error', `❌ Trigger failed, stopping mission`)
+          this.stopMission()
+          break
+
+        case 'pause':
+          this.addLog('warning', `⏸️ Trigger failed, pausing mission`)
+          this.pauseMission()
+          break
+      }
+    },
+
     handleGoalFailure() {
       if (!this.missionState.isActive) return
-      
+
       this.addLog('error', `❌ Step ${this.missionState.currentStep} failed`)
       this.stopGoalMonitoring()
-      
-      // Retry after 3 seconds
+
       setTimeout(() => {
         this.addLog('warning', `🔄 Retrying Step ${this.missionState.currentStep}`)
-        this.executeCurrentGoal()
+        this.executeCurrentGoalWithTrigger()
       }, 3000)
     },
-    
+
     pauseMission() {
       if (!this.missionState.isActive || this.missionState.isPaused) return
-      
+
       this.missionState.isPaused = true
       this.missionState.status = 'paused'
       this.stopGoalMonitoring()
+      this.clearTriggerState()
       this.addLog('warning', '⏸️ Mission paused')
     },
-    
+
     resumeMission() {
       if (!this.missionState.isActive || !this.missionState.isPaused) return
-      
+
       this.missionState.isPaused = false
       this.missionState.status = 'executing'
       this.addLog('info', '▶️ Mission resumed')
-      
-      this.executeCurrentGoal()
+
+      this.executeCurrentGoalWithTrigger()
     },
-    
+
     stopMission() {
       if (!this.missionState.isActive && !this.isRunningAllMissions) return
-      
+
       this.missionState.isActive = false
       this.missionState.isPaused = false
       this.missionState.status = 'stopped'
       this.stopGoalMonitoring()
+      this.clearTriggerState()
       this.currentGoal = null
       this.goalStartTime = null
-      
-      // Also stop batch execution if running
+
       if (this.isRunningAllMissions) {
         this.stopAllMissions()
       } else {
         this.addLog('warning', '⏹️ Mission stopped')
       }
     },
-    
+
     cancelMission() {
       if (!this.missionState.isActive) return
-      
+
       if (confirm('Cancel mission and reset progress?')) {
         this.stopMission()
         this.missionState.completedGoals = 0
@@ -1541,29 +2073,31 @@ export default {
         this.addLog('warning', 'Mission canceled and reset')
       }
     },
-    
+
     skipToNextGoal() {
       if (!this.missionState.isActive) return
-      
+
       this.addLog('info', `⏭️ Skipping Step ${this.missionState.currentStep}`)
       this.stopGoalMonitoring()
+      this.clearTriggerState()
       this.missionState.currentStep++
-      
+
       if (this.missionState.currentStep > this.currentMission.goals.length) {
         this.completeMission()
       } else {
-        this.executeCurrentGoal()
+        this.executeCurrentGoalWithTrigger()
       }
     },
-    
+
     retryCurrentGoal() {
       if (!this.missionState.isActive) return
-      
+
       this.addLog('info', `🔄 Retrying Step ${this.missionState.currentStep}`)
       this.stopGoalMonitoring()
-      this.executeCurrentGoal()
+      this.clearTriggerState()
+      this.executeCurrentGoalWithTrigger()
     },
-    
+
     completeMission() {
       this.missionState.isActive = false
       this.missionState.isPaused = false
@@ -1571,141 +2105,134 @@ export default {
       this.currentGoal = null
       this.goalStartTime = null
       this.stopGoalMonitoring()
-      
+      this.clearTriggerState()
+
       this.addLog('success', `🎉 Mission "${this.currentMission.name}" completed!`)
       this.addLog('success', `📊 ${this.missionState.completedGoals} of ${this.missionState.totalSteps} goals completed`)
     },
-    
+
     // ====== RUN ALL MISSIONS FUNCTIONALITY ======
-    
+
     async runAllMissions() {
       if (!this.isConnected) {
         this.addLog('error', 'Cannot run missions: ROS not connected')
         return
       }
-      
+
       if (this.filteredMissions.length === 0) {
         this.addLog('error', 'No missions available to run')
         return
       }
-      
-      // Filter hanya misi yang memiliki goals
+
       const missionsWithGoals = this.filteredMissions.filter(m => m.goal_count > 0)
-      
+
       if (missionsWithGoals.length === 0) {
         this.addLog('error', 'No missions with goals available to run')
         return
       }
-      
+
       if (!confirm(`Run all ${missionsWithGoals.length} missions? This will execute each mission sequentially.`)) {
         return
       }
-      
+
       this.addLog('info', `🚀 Starting to run all ${missionsWithGoals.length} missions`)
-      
-      // Setup batch execution
+
       this.isRunningAllMissions = true
       this.batchMissions = [...missionsWithGoals]
       this.currentBatchMissionIndex = 0
       this.missionState.status = 'batch-executing'
-      
-      // Start batch execution
+
       await this.executeNextMissionInBatch()
     },
-    
+
     async executeNextMissionInBatch() {
       if (!this.isRunningAllMissions || this.currentBatchMissionIndex >= this.batchMissions.length) {
         this.completeAllMissions()
         return
       }
-      
+
       const mission = this.batchMissions[this.currentBatchMissionIndex]
       const missionNumber = this.currentBatchMissionIndex + 1
       const totalMissions = this.batchMissions.length
-      
+
       this.addLog('info', `📋 Mission ${missionNumber}/${totalMissions}: ${mission.name}`)
-      
+
       try {
-        // Load the mission
         await this.loadMission(mission)
-        
-        // Start mission execution
+
         this.startMissionExecution()
-        
-        // Setup completion monitoring
+
         this.monitorBatchMissionCompletion()
-        
+
       } catch (error) {
         this.addLog('error', `Failed to execute mission ${mission.name}: ${error.message}`)
         this.currentBatchMissionIndex++
         setTimeout(() => this.executeNextMissionInBatch(), 1000)
       }
     },
-    
+
     monitorBatchMissionCompletion() {
       if (this.batchCompletionCheck) {
         clearInterval(this.batchCompletionCheck)
       }
-      
+
       this.batchCompletionCheck = setInterval(() => {
         if (!this.missionState.isActive && !this.missionState.isPaused) {
           clearInterval(this.batchCompletionCheck)
           this.batchCompletionCheck = null
-          
+
           const mission = this.batchMissions[this.currentBatchMissionIndex]
           const missionNumber = this.currentBatchMissionIndex + 1
-          
-          // Check mission completion status
+
           if (this.missionState.status === 'completed') {
             this.addLog('success', `✅ Mission ${missionNumber}: ${mission.name} completed successfully`)
           } else {
             this.addLog('warning', `⚠️ Mission ${missionNumber}: ${mission.name} ended with status: ${this.missionState.status}`)
           }
-          
+
           this.currentBatchMissionIndex++
-          
-          // Delay before next mission
+
           setTimeout(() => {
             this.executeNextMissionInBatch()
           }, 2000)
         }
       }, 1000)
     },
-    
+
     stopAllMissions() {
       this.isRunningAllMissions = false
       this.batchMissions = []
       this.currentBatchMissionIndex = 0
-      
+
       if (this.batchCompletionCheck) {
         clearInterval(this.batchCompletionCheck)
         this.batchCompletionCheck = null
       }
-      
+
       this.addLog('warning', '⏹️ All missions execution stopped')
       this.missionState.status = 'idle'
     },
-    
+
     completeAllMissions() {
       this.isRunningAllMissions = false
       this.batchMissions = []
       this.currentBatchMissionIndex = 0
-      
+
       if (this.batchCompletionCheck) {
         clearInterval(this.batchCompletionCheck)
         this.batchCompletionCheck = null
       }
-      
+
       this.addLog('success', `🎉 All missions completed!`)
       this.missionState.status = 'idle'
     },
-    
+
     updateElapsedTime() {
       if (this.goalStartTime) {
         this.currentGoalTime = Math.floor((Date.now() - this.goalStartTime) / 1000)
       }
     },
-    
+
     addLog(type, message) {
       const time = new Date().toLocaleTimeString()
       this.missionLogs.unshift({
@@ -1713,18 +2240,17 @@ export default {
         type,
         message
       })
-      
-      // Keep only last 100 logs
+
       if (this.missionLogs.length > 100) {
         this.missionLogs = this.missionLogs.slice(0, 100)
       }
     },
-    
+
     clearLogs() {
       this.missionLogs = []
       this.addLog('info', 'Logs cleared')
     },
-    
+
     getLogIcon(type) {
       switch (type) {
         case 'success': return 'fas fa-check-circle'
@@ -1734,7 +2260,7 @@ export default {
         default: return 'fas fa-info-circle'
       }
     },
-    
+
     formatDate(dateString) {
       if (!dateString) return 'N/A'
       try {
@@ -1748,19 +2274,19 @@ export default {
         return 'Invalid Date'
       }
     },
-    
+
     closeModal() {
       this.showMissionModal = false
       this.showCategoryModal = false
       this.editingCategory = false
     },
-    
+
     nextPage() {
       if (this.currentPage < this.totalPages) {
         this.currentPage++
       }
     },
-    
+
     prevPage() {
       if (this.currentPage > 1) {
         this.currentPage--
@@ -2130,6 +2656,16 @@ export default {
   flex-wrap: wrap;
 }
 
+.filter-select {
+  padding: 6px 10px;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 6px;
+  font-size: 11px;
+  min-width: 120px;
+}
+
 .search-box {
   position: relative;
   display: flex;
@@ -2170,6 +2706,42 @@ export default {
   gap: 8px;
   min-height: 200px;
   max-height: 400px;
+}
+
+/* Goal Set Info */
+.goal-set-info {
+  margin-bottom: 12px;
+}
+
+.info-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background-color: rgba(59, 130, 246, 0.1);
+  border: 1px solid var(--accent-blue);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--accent-blue);
+}
+
+.info-badge i {
+  font-size: 12px;
+}
+
+.clear-btn {
+  background: none;
+  border: none;
+  color: var(--accent-blue);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+  margin-left: 4px;
+}
+
+.clear-btn:hover {
+  background-color: rgba(59, 130, 246, 0.2);
 }
 
 .goal-item {
@@ -2484,6 +3056,180 @@ export default {
   flex-shrink: 0;
 }
 
+/* Goal Trigger Styles */
+.goal-trigger-section {
+  margin-top: 12px;
+  padding: 12px;
+  background-color: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  border-left: 3px solid var(--accent-blue);
+}
+
+.trigger-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.trigger-label {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.trigger-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.trigger-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.trigger-option {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background-color: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.trigger-option:hover {
+  border-color: var(--border-color);
+}
+
+.trigger-label-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+}
+
+.trigger-label-option:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.trigger-label-option i {
+  width: 16px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.trigger-label-option span:first-of-type {
+  font-weight: 500;
+  color: var(--text-primary);
+  font-size: 12px;
+  min-width: 80px;
+}
+
+.trigger-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.trigger-radio {
+  display: none;
+}
+
+.trigger-radio:checked+.trigger-label-option {
+  background-color: rgba(59, 130, 246, 0.1);
+  border: 1px solid var(--accent-blue);
+}
+
+.trigger-radio:checked+.trigger-label-option i {
+  color: var(--accent-blue);
+}
+
+.timer-input,
+.sensor-input {
+  margin-left: 24px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.time-input,
+.condition-input,
+.sensor-select,
+.timeout-input,
+.retry-input,
+.failure-select {
+  padding: 6px 10px;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 6px;
+  font-size: 12px;
+  max-width: 200px;
+}
+
+.time-unit {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.advanced-trigger {
+  margin-top: 12px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 12px;
+}
+
+.advanced-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background-color: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.advanced-toggle:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.advanced-toggle span {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.advanced-content {
+  margin-top: 8px;
+  padding: 12px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.advanced-content .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.advanced-content label {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
 .empty-sequence {
   display: flex;
   flex-direction: column;
@@ -2575,16 +3321,6 @@ export default {
 }
 
 /* Missions Panel */
-.filter-select {
-  padding: 6px 10px;
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  border-radius: 6px;
-  font-size: 11px;
-  min-width: 100px;
-}
-
 .missions-list {
   flex: 1;
   overflow-y: auto;
@@ -2664,7 +3400,8 @@ export default {
   overflow: hidden;
 }
 
-.mission-category, .mission-goals {
+.mission-category,
+.mission-goals {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -2806,6 +3543,30 @@ export default {
   text-overflow: ellipsis;
 }
 
+.trigger-info {
+  margin-top: 8px;
+  padding: 6px;
+  background-color: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--accent-yellow);
+}
+
+.small-btn {
+  padding: 3px 8px;
+  background-color: var(--accent-green);
+  color: white;
+  border: none;
+  border-radius: 3px;
+  font-size: 10px;
+  cursor: pointer;
+  margin-left: auto;
+}
+
 .execution-controls {
   display: flex;
   flex-direction: column;
@@ -2928,9 +3689,17 @@ export default {
 }
 
 @keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.7; }
-  100% { opacity: 1; }
+  0% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.7;
+  }
+
+  100% {
+    opacity: 1;
+  }
 }
 
 /* Logs Panel */
@@ -3084,6 +3853,84 @@ export default {
   margin: 0 0 12px 0;
   font-size: 12px;
   max-width: 180px;
+}
+
+/* Manual Confirmation Modal */
+.manual-confirmation-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 16px;
+}
+
+.manual-confirmation-modal {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 400px;
+  width: 90%;
+  text-align: center;
+}
+
+.confirmation-title {
+  font-size: 16px;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.confirmation-message {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+}
+
+.confirmation-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.confirm-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.confirm-btn.success {
+  background-color: var(--accent-green);
+  color: white;
+}
+
+.confirm-btn.danger {
+  background-color: var(--accent-red);
+  color: white;
+}
+
+.confirm-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-2px);
 }
 
 /* Modal Styles */
@@ -3307,8 +4154,13 @@ export default {
 
 /* Animation for spinner */
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .fa-spin {
@@ -3320,61 +4172,61 @@ export default {
   .mission-control {
     padding: 16px;
   }
-  
+
   .header-section {
     flex-direction: row;
     padding: 20px;
   }
-  
+
   .header-actions {
     flex-wrap: nowrap;
   }
-  
+
   .header-btn {
     flex: none;
   }
-  
+
   .main-grid {
     grid-template-columns: repeat(2, 1fr);
     grid-template-rows: auto auto;
     height: calc(100vh - 140px);
   }
-  
+
   .left-column {
     grid-column: 1;
     grid-row: 1;
   }
-  
+
   .middle-column {
     grid-column: 2;
     grid-row: 1 / span 2;
   }
-  
+
   .right-column {
     grid-column: 1;
     grid-row: 2;
   }
-  
+
   .info-row {
     grid-template-columns: repeat(2, 1fr);
   }
-  
+
   .goal-item {
     flex-wrap: nowrap;
   }
-  
+
   .mission-item {
     flex-wrap: nowrap;
   }
-  
+
   .logs-container {
     max-height: 200px;
   }
-  
+
   .control-row {
     grid-template-columns: 1fr;
   }
-  
+
   .control-row:last-child {
     grid-template-columns: repeat(3, 1fr);
   }
@@ -3385,34 +4237,34 @@ export default {
     grid-template-columns: 300px 1fr 300px;
     grid-template-rows: 1fr;
   }
-  
+
   .left-column {
     grid-column: 1;
     grid-row: 1;
   }
-  
+
   .middle-column {
     grid-column: 2;
     grid-row: 1;
   }
-  
+
   .right-column {
     grid-column: 3;
     grid-row: 1;
   }
-  
+
   .header-text h1 {
     font-size: 22px;
   }
-  
+
   .subtitle {
     font-size: 13px;
   }
-  
+
   .logs-container {
     max-height: 180px;
   }
-  
+
   .control-row {
     grid-template-columns: 1fr;
   }
@@ -3422,11 +4274,11 @@ export default {
   .mission-control {
     padding: 20px;
   }
-  
+
   .main-grid {
     grid-template-columns: 320px 1fr 320px;
   }
-  
+
   .card {
     padding: 20px;
   }
@@ -3434,6 +4286,7 @@ export default {
 
 /* Touch-friendly improvements */
 @media (hover: none) and (pointer: coarse) {
+
   .action-btn,
   .header-btn,
   .control-btn,
@@ -3441,22 +4294,22 @@ export default {
     min-height: 44px;
     padding: 12px 16px;
   }
-  
+
   .icon-btn {
     width: 44px;
     height: 44px;
   }
-  
+
   .sequence-item {
     padding: 12px;
   }
-  
+
   .goal-item,
   .mission-item,
   .category-item {
     padding: 12px;
   }
-  
+
   .search-input,
   .mission-input,
   .mission-select,
@@ -3472,72 +4325,72 @@ export default {
     padding: 8px;
     gap: 12px;
   }
-  
+
   .header-section {
     padding: 12px;
   }
-  
+
   .header-icon {
     width: 40px;
     height: 40px;
     font-size: 18px;
   }
-  
+
   .header-text h1 {
     font-size: 18px;
   }
-  
+
   .subtitle {
     font-size: 11px;
   }
-  
+
   .header-btn {
     font-size: 11px;
     padding: 6px 10px;
   }
-  
+
   .card {
     padding: 12px;
   }
-  
+
   .panel-header h3 {
     font-size: 13px;
   }
-  
+
   .execution-stats {
     grid-template-columns: 1fr;
   }
-  
+
   .goal-coords {
     flex-direction: column;
     gap: 6px;
   }
-  
+
   .coord {
     width: 100%;
   }
-  
+
   .control-row {
     grid-template-columns: 1fr;
   }
-  
+
   .control-row:last-child {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  
+
   .control-btn {
     font-size: 11px;
     padding: 8px 4px;
   }
-  
+
   .log-message {
     font-size: 10px;
   }
-  
+
   .mission-item {
     flex-wrap: wrap;
   }
-  
+
   .mission-actions {
     width: 100%;
     justify-content: flex-end;
@@ -3551,19 +4404,19 @@ export default {
   .execution-content {
     gap: 10px;
   }
-  
+
   .execution-stats {
     grid-template-columns: repeat(2, 1fr);
   }
-  
+
   .control-btn {
     font-size: 11px;
   }
-  
+
   .log-message {
     font-size: 11px;
   }
-  
+
   .middle-column {
     max-height: calc(100vh - 160px);
   }

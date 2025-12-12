@@ -1096,6 +1096,362 @@ app.delete('/api/missions/:id', async (req, res) => {
     }
 });
 
+// POST save mission with triggers
+app.post('/api/missions/with-triggers', async (req, res) => {
+    const connection = await pool.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        const { name, description, category_id, goals } = req.body;
+
+        if (!name || !category_id) {
+            return res.status(400).json({
+                error: 'Mission name and category are required'
+            });
+        }
+
+        if (!goals || !Array.isArray(goals) || goals.length === 0) {
+            return res.status(400).json({
+                error: 'Mission must have at least one goal'
+            });
+        }
+
+        // Create mission
+        const [result] = await connection.execute(
+            'INSERT INTO missions (name, description, category_id) VALUES (?, ?, ?)',
+            [name, description || '', category_id]
+        );
+
+        const missionId = result.insertId;
+
+        // Save mission goals with triggers
+        const goalValues = [];
+        for (let i = 0; i < goals.length; i++) {
+            const goal = goals[i];
+            
+            // First, save goal to goals table if it doesn't exist
+            let goalId = goal.id;
+            
+            if (!goalId) {
+                // Insert new goal
+                const [goalResult] = await connection.execute(
+                    `INSERT INTO goals 
+                     (goal_set_id, sequence_number, position_x, position_y, 
+                      orientation_z, orientation_w, tolerance_xy, tolerance_yaw) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        goal.goal_set_id || 1, // default goal set
+                        goal.sequence_number || (i + 1),
+                        goal.position_x || 0,
+                        goal.position_y || 0,
+                        goal.orientation_z || 0.0,
+                        goal.orientation_w || 1.0,
+                        goal.tolerance_xy || 0.3,
+                        goal.tolerance_yaw || 0.5
+                    ]
+                );
+                goalId = goalResult.insertId;
+            }
+
+            // Save to mission_goals with trigger data
+            goalValues.push([
+                missionId,
+                goalId,
+                i + 1, // sequence_number
+                goal.next_goal_trigger || 'auto',
+                goal.wait_time || 5,
+                goal.sensor_type || '',
+                goal.sensor_condition || '',
+                goal.timeout || 60,
+                goal.retry_count || 0,
+                goal.on_failure || 'skip'
+            ]);
+        }
+
+        // Insert mission goals with triggers
+        if (goalValues.length > 0) {
+            await connection.query(
+                `INSERT INTO mission_goals 
+                 (mission_id, goal_id, sequence_number, next_goal_trigger, 
+                  wait_time, sensor_type, sensor_condition, timeout, 
+                  retry_count, on_failure) 
+                 VALUES ?`,
+                [goalValues]
+            );
+        }
+
+        await connection.commit();
+
+        // Fetch the complete mission data
+        const [missions] = await connection.execute(`
+            SELECT 
+                m.*,
+                c.name as category_name,
+                c.icon as category_icon
+            FROM missions m
+            LEFT JOIN categories c ON m.category_id = c.id
+            WHERE m.id = ?
+        `, [missionId]);
+
+        const mission = missions[0];
+
+        // Fetch goals with trigger data
+        const [missionGoals] = await connection.execute(`
+            SELECT 
+                mg.*,
+                g.position_x,
+                g.position_y,
+                g.orientation_z,
+                g.orientation_w,
+                g.tolerance_xy,
+                g.tolerance_yaw,
+                gs.name as goal_set_name,
+                mp.name as map_name
+            FROM mission_goals mg
+            JOIN goals g ON mg.goal_id = g.id
+            LEFT JOIN goal_sets gs ON g.goal_set_id = gs.id
+            LEFT JOIN maps mp ON gs.map_id = mp.id
+            WHERE mg.mission_id = ?
+            ORDER BY mg.sequence_number
+        `, [missionId]);
+
+        mission.goals = missionGoals;
+        mission.goal_count = missionGoals.length;
+
+        connection.release();
+
+        res.status(201).json({
+            success: true,
+            message: 'Mission saved with triggers successfully',
+            mission
+        });
+
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error saving mission with triggers:', error);
+        res.status(500).json({ 
+            error: 'Failed to save mission with triggers',
+            details: error.message 
+        });
+    }
+});
+
+// PUT update mission with triggers
+app.put('/api/missions/with-triggers/:id', async (req, res) => {
+    const connection = await pool.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        const { id } = req.params;
+        const { name, description, category_id, goals } = req.body;
+
+        // Check if mission exists
+        const [existingMission] = await connection.execute(
+            'SELECT id FROM missions WHERE id = ?',
+            [id]
+        );
+
+        if (existingMission.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'Mission not found' });
+        }
+
+        // Update mission details
+        await connection.execute(
+            'UPDATE missions SET name = ?, description = ?, category_id = ? WHERE id = ?',
+            [name, description || '', category_id, id]
+        );
+
+        // Remove existing mission goals
+        await connection.execute(
+            'DELETE FROM mission_goals WHERE mission_id = ?',
+            [id]
+        );
+
+        // Save new mission goals with triggers
+        if (goals && Array.isArray(goals) && goals.length > 0) {
+            const goalValues = [];
+            
+            for (let i = 0; i < goals.length; i++) {
+                const goal = goals[i];
+                let goalId = goal.id;
+
+                if (!goalId) {
+                    // Insert new goal if it doesn't exist
+                    const [goalResult] = await connection.execute(
+                        `INSERT INTO goals 
+                         (goal_set_id, sequence_number, position_x, position_y, 
+                          orientation_z, orientation_w, tolerance_xy, tolerance_yaw) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [
+                            goal.goal_set_id || 1,
+                            goal.sequence_number || (i + 1),
+                            goal.position_x || 0,
+                            goal.position_y || 0,
+                            goal.orientation_z || 0.0,
+                            goal.orientation_w || 1.0,
+                            goal.tolerance_xy || 0.3,
+                            goal.tolerance_yaw || 0.5
+                        ]
+                    );
+                    goalId = goalResult.insertId;
+                }
+
+                goalValues.push([
+                    id,
+                    goalId,
+                    i + 1,
+                    goal.next_goal_trigger || 'auto',
+                    goal.wait_time || 5,
+                    goal.sensor_type || '',
+                    goal.sensor_condition || '',
+                    goal.timeout || 60,
+                    goal.retry_count || 0,
+                    goal.on_failure || 'skip'
+                ]);
+            }
+
+            if (goalValues.length > 0) {
+                await connection.query(
+                    `INSERT INTO mission_goals 
+                     (mission_id, goal_id, sequence_number, next_goal_trigger, 
+                      wait_time, sensor_type, sensor_condition, timeout, 
+                      retry_count, on_failure) 
+                     VALUES ?`,
+                    [goalValues]
+                );
+            }
+        }
+
+        await connection.commit();
+
+        // Fetch updated mission data
+        const [missions] = await connection.execute(`
+            SELECT 
+                m.*,
+                c.name as category_name,
+                c.icon as category_icon
+            FROM missions m
+            LEFT JOIN categories c ON m.category_id = c.id
+            WHERE m.id = ?
+        `, [id]);
+
+        const mission = missions[0];
+
+        // Fetch goals with trigger data
+        const [missionGoals] = await connection.execute(`
+            SELECT 
+                mg.*,
+                g.position_x,
+                g.position_y,
+                g.orientation_z,
+                g.orientation_w,
+                g.tolerance_xy,
+                g.tolerance_yaw,
+                gs.name as goal_set_name,
+                mp.name as map_name
+            FROM mission_goals mg
+            JOIN goals g ON mg.goal_id = g.id
+            LEFT JOIN goal_sets gs ON g.goal_set_id = gs.id
+            LEFT JOIN maps mp ON gs.map_id = mp.id
+            WHERE mg.mission_id = ?
+            ORDER BY mg.sequence_number
+        `, [id]);
+
+        mission.goals = missionGoals;
+        mission.goal_count = missionGoals.length;
+
+        connection.release();
+
+        res.json({
+            success: true,
+            message: 'Mission updated with triggers successfully',
+            mission
+        });
+
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error updating mission with triggers:', error);
+        res.status(500).json({ 
+            error: 'Failed to update mission with triggers',
+            details: error.message 
+        });
+    }
+});
+
+// GET mission with triggers by ID
+app.get('/api/missions/with-triggers/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const [missions] = await pool.execute(`
+            SELECT 
+                m.id,
+                m.name,
+                m.description,
+                m.category_id,
+                m.created_at,
+                m.last_executed,
+                c.name as category_name,
+                c.icon as category_icon,
+                c.color as category_color
+            FROM missions m
+            LEFT JOIN categories c ON m.category_id = c.id
+            WHERE m.id = ?
+        `, [id]);
+
+        if (missions.length === 0) {
+            return res.status(404).json({ error: 'Mission not found' });
+        }
+
+        const mission = missions[0];
+
+        // Get mission goals with triggers
+        const [goals] = await pool.execute(`
+            SELECT 
+                mg.id,
+                mg.sequence_number,
+                mg.next_goal_trigger,
+                mg.wait_time,
+                mg.sensor_type,
+                mg.sensor_condition,
+                mg.timeout,
+                mg.retry_count,
+                mg.on_failure,
+                g.position_x,
+                g.position_y,
+                g.orientation_z,
+                g.orientation_w,
+                g.tolerance_xy,
+                g.tolerance_yaw,
+                g.created_at,
+                gs.name as goal_set_name,
+                gs.id as goal_set_id,
+                mp.name as map_name
+            FROM mission_goals mg
+            JOIN goals g ON mg.goal_id = g.id
+            LEFT JOIN goal_sets gs ON g.goal_set_id = gs.id
+            LEFT JOIN maps mp ON gs.map_id = mp.id
+            WHERE mg.mission_id = ?
+            ORDER BY mg.sequence_number
+        `, [id]);
+
+        mission.goals = goals;
+        mission.goal_count = goals.length;
+
+        res.json({
+            success: true,
+            mission
+        });
+
+    } catch (error) {
+        console.error('Error fetching mission with triggers:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Update mission last_executed timestamp
 app.patch('/api/missions/:id/execute', async (req, res) => {
     try {

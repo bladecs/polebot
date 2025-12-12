@@ -194,48 +194,106 @@
                     </div>
 
                     <div v-else class="goals-list">
-                        <div class="goals-list-header">
+                        <!-- Header untuk desktop -->
+                        <div class="goals-list-header desktop-only">
                             <div class="header-item">#</div>
                             <div class="header-item">Coordinates</div>
                             <div class="header-item">Time</div>
                             <div class="header-item">Actions</div>
                         </div>
+                        
+                        <!-- Header untuk mobile -->
+                        <div class="goals-list-header mobile-only">
+                            <div class="header-item">Goals List</div>
+                        </div>
+                        
                         <div class="goals-list-content">
-                            <div v-for="(goal, index) in goals" :key="index" class="goal-list-item"
-                                :class="{ active: selectedGoal === index }" @click="selectGoal(index)">
-                                <div class="list-item-number">
-                                    <span class="goal-badge">{{ index + 1 }}</span>
-                                </div>
-                                <div class="list-item-coords">
-                                    <div class="coord-display">
-                                        <div class="coord-x">
-                                            <i class="fas fa-long-arrow-alt-right"></i>
-                                            {{ goal.x.toFixed(2) }}
+                            <div v-for="(goal, index) in goals" :key="index" 
+                                 class="goal-list-item"
+                                 :class="{ active: selectedGoal === index }" 
+                                 @click="selectGoal(index)">
+                                 
+                                <!-- Desktop View -->
+                                <div class="list-item-desktop">
+                                    <div class="list-item-number">
+                                        <span class="goal-badge">{{ index + 1 }}</span>
+                                    </div>
+                                    <div class="list-item-coords">
+                                        <div class="coord-display">
+                                            <div class="coord-x">
+                                                <i class="fas fa-long-arrow-alt-right"></i>
+                                                {{ goal.x.toFixed(2) }}
+                                            </div>
+                                            <div class="coord-y">
+                                                <i class="fas fa-long-arrow-alt-up"></i>
+                                                {{ goal.y.toFixed(2) }}
+                                            </div>
                                         </div>
-                                        <div class="coord-y">
-                                            <i class="fas fa-long-arrow-alt-up"></i>
-                                            {{ goal.y.toFixed(2) }}
+                                    </div>
+                                    <div class="list-item-time desktop-only">
+                                        <div class="time-display">
+                                            <i class="far fa-clock"></i>
+                                            {{ formatTimeAgo(goal.timestamp) }}
+                                        </div>
+                                    </div>
+                                    <div class="list-item-actions">
+                                        <div class="action-buttons">
+                                            <button class="list-action-btn" @click.stop="editGoal(index)" 
+                                                    title="Edit Goal">
+                                                <i class="fas fa-edit"></i>
+                                                <span class="mobile-label">Edit</span>
+                                            </button>
+                                            <button class="list-action-btn danger" @click.stop="removeGoal(index)"
+                                                    title="Remove Goal">
+                                                <i class="fas fa-trash"></i>
+                                                <span class="mobile-label">Delete</span>
+                                            </button>
+                                            <button class="list-action-btn success" @click.stop="sendSingleGoal(goal)"
+                                                    title="Send to Robot" :disabled="!isConnected">
+                                                <i class="fas fa-paper-plane"></i>
+                                                <span class="mobile-label">Send</span>
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="list-item-time">
-                                    <div class="time-display">
-                                        <i class="far fa-clock"></i>
-                                        {{ formatTimeAgo(goal.timestamp) }}
+                                
+                                <!-- Mobile View -->
+                                <div class="list-item-mobile">
+                                    <div class="mobile-goal-header">
+                                        <div class="mobile-goal-number">
+                                            <span class="goal-badge">{{ index + 1 }}</span>
+                                        </div>
+                                        <div class="mobile-goal-coords">
+                                            <div class="coord-line">
+                                                <i class="fas fa-long-arrow-alt-right"></i>
+                                                <span>X: {{ goal.x.toFixed(2) }}</span>
+                                            </div>
+                                            <div class="coord-line">
+                                                <i class="fas fa-long-arrow-alt-up"></i>
+                                                <span>Y: {{ goal.y.toFixed(2) }}</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                                <div class="list-item-actions">
-                                    <button class="list-action-btn" @click.stop="editGoal(index)" title="Edit Goal">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button class="list-action-btn danger" @click.stop="removeGoal(index)"
-                                        title="Remove Goal">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                    <button class="list-action-btn success" @click.stop="sendSingleGoal(goal)"
-                                        title="Send to Robot" :disabled="!isConnected">
-                                        <i class="fas fa-paper-plane"></i>
-                                    </button>
+                                    <div class="mobile-goal-info">
+                                        <div class="mobile-time">
+                                            <i class="far fa-clock"></i>
+                                            {{ formatTimeAgo(goal.timestamp) }}
+                                        </div>
+                                        <div class="mobile-actions">
+                                            <button class="mobile-action-btn" @click.stop="editGoal(index)" 
+                                                    title="Edit Goal">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button class="mobile-action-btn danger" @click.stop="removeGoal(index)"
+                                                    title="Remove Goal">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                            <button class="mobile-action-btn success" @click.stop="sendSingleGoal(goal)"
+                                                    title="Send to Robot" :disabled="!isConnected">
+                                                <i class="fas fa-paper-plane"></i>
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -245,7 +303,7 @@
                     <div class="goals-actions">
                         <div class="action-group">
                             <button class="action-btn" @click="saveGoalsToDatabase"
-                                :disabled="goals.length === 0 || isSavingGoals">
+                                    :disabled="goals.length === 0 || isSavingGoals">
                                 <i class="fas" :class="isSavingGoals ? 'fa-spinner fa-spin' : 'fa-database'"></i>
                                 <span class="btn-text">{{ isSavingGoals ? 'Saving...' : 'Save to DB' }}</span>
                             </button>
@@ -296,13 +354,13 @@
                             <h3>Quick Actions</h3>
                         </div>
                         <!-- Toggle button untuk mobile -->
-                        <button class="mobile-toggle" @click="toggleQuickActions" v-if="isMobile">
+                        <button class="mobile-toggle" @click="toggleQuickActions">
                             <i class="fas" :class="showQuickActions ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
                         </button>
                     </div>
                     
                     <!-- Wrap content untuk bisa di-toggle -->
-                    <div class="quick-actions-content" :class="{ 'collapsed': !showQuickActions && isMobile }">
+                    <div class="quick-actions-content" :class="{ 'collapsed': !showQuickActions }">
                         <div class="quick-action-input">
                             <label class="input-label">
                                 <span class="label-text">Map Name:</span>
@@ -393,8 +451,7 @@ export default {
             goalSets: [],
             isSavingGoals: false,
             isLoadingGoals: false,
-            showQuickActions: true,
-            isMobile: false
+            showQuickActions: true
         }
     },
     computed: {
@@ -414,6 +471,7 @@ export default {
         this.renderMap()
         this.checkMobile();
         window.addEventListener('resize', this.checkMobile);
+        window.addEventListener('orientationchange', this.handleOrientationChange);
     },
     beforeUnmount() {
         const canvas = this.$refs.mapCanvas
@@ -421,6 +479,7 @@ export default {
             canvas.removeEventListener('mousemove', this.handleMouseMove)
         }
         window.removeEventListener('resize', this.checkMobile);
+        window.removeEventListener('orientationchange', this.handleOrientationChange);
     },
     watch: {
         mapData() {
@@ -429,10 +488,18 @@ export default {
     },
     methods: {
         checkMobile() {
-            this.isMobile = window.innerWidth <= 768;
-            if (!this.isMobile) {
+            const isMobile = window.innerWidth <= 768;
+            if (!isMobile) {
                 this.showQuickActions = true;
             }
+        },
+
+        handleOrientationChange() {
+            // Re-render map on orientation change
+            setTimeout(() => {
+                this.renderMap();
+                this.checkMobile();
+            }, 300);
         },
 
         toggleQuickActions() {
@@ -1817,49 +1884,54 @@ export default {
 </script>
 
 <style scoped>
+/* ========== BASE STYLES ========== */
 .goal-planning {
     width: 100%;
-    height: 100%;
+    min-height: 100vh;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 16px;
+    padding: 12px;
+    box-sizing: border-box;
 }
 
-/* Header Section */
+/* ========== HEADER SECTION ========== */
 .header-section {
-    background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9));
-    border-radius: 16px;
-    padding: 24px;
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95));
+    border-radius: 12px;
+    padding: 16px;
     border: 1px solid var(--border-color);
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    gap: 16px;
     backdrop-filter: blur(10px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
 .header-content {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 20px;
+    text-align: center;
+    gap: 12px;
 }
 
 .header-icon {
-    width: 60px;
-    height: 60px;
+    width: 50px;
+    height: 50px;
     background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-    border-radius: 12px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 28px;
+    font-size: 24px;
     color: white;
-    box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
 .header-text h1 {
-    margin: 0 0 8px 0;
-    font-size: 28px;
+    margin: 0 0 4px 0;
+    font-size: 22px;
     font-weight: 700;
     background: linear-gradient(135deg, var(--text-primary), var(--accent-blue));
     -webkit-background-clip: text;
@@ -1869,37 +1941,34 @@ export default {
 
 .subtitle {
     margin: 0;
-    font-size: 14px;
+    font-size: 13px;
     color: var(--text-muted);
-    max-width: 600px;
-    line-height: 1.5;
+    line-height: 1.4;
+    max-width: 100%;
 }
 
 .header-actions {
     display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
 }
 
 .header-btn {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
-    padding: 12px 20px;
+    padding: 14px;
     background-color: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--border-color);
     color: var(--text-secondary);
-    border-radius: 10px;
+    border-radius: 8px;
     font-weight: 500;
-    transition: all 0.3s ease;
-    min-width: 140px;
-    justify-content: center;
-}
-
-.header-btn:hover:not(:disabled) {
-    background-color: rgba(255, 255, 255, 0.1);
-    transform: translateY(-2px);
-    color: var(--text-primary);
+    font-size: 14px;
+    transition: all 0.2s ease;
+    width: 100%;
+    min-height: 48px;
 }
 
 .header-btn.primary {
@@ -1908,61 +1977,15 @@ export default {
     border: none;
 }
 
-.header-btn.primary:hover:not(:disabled) {
-    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
-    transform: translateY(-2px);
+.header-btn:active:not(:disabled) {
+    transform: scale(0.98);
 }
 
-.header-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.input-group {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.input-label {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.label-text {
-    font-weight: 600;
-    color: var(--text-secondary);
-    font-size: 14px;
-}
-
-.input-field {
-    padding: 12px;
-    border: 1px solid var(--border-color);
-    background-color: rgba(255, 255, 255, 0.05);
-    color: var(--text-primary);
-    border-radius: 8px;
-    font-size: 14px;
-    transition: all 0.3s ease;
-}
-
-.input-field:focus {
-    outline: none;
-    border-color: var(--accent-blue);
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-}
-
-.input-hint {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 4px;
-}
-
-/* Main Layout */
+/* ========== MAIN LAYOUT ========== */
 .main-layout {
-    display: grid;
-    grid-template-columns: 1fr 400px;
-    gap: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
     flex: 1;
     min-height: 0;
 }
@@ -1971,57 +1994,596 @@ export default {
 .goals-section {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 16px;
 }
 
-/* Section Header */
+/* ========== MAP SECTION ========== */
+.map-container {
+    background-color: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    padding: 12px;
+    min-height: 300px;
+    position: relative;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.map-wrapper {
+    position: relative;
+    min-width: min-content;
+    margin: 0 auto;
+}
+
+.map-canvas {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+/* Map controls untuk mobile */
+.map-controls-overlay {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 5;
+}
+
+.map-control-btn {
+    width: 40px;
+    height: 40px;
+    background-color: rgba(30, 41, 59, 0.95);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.map-control-btn:active {
+    transform: scale(0.9);
+}
+
+.map-legend {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    background-color: rgba(30, 41, 59, 0.95);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 5;
+    max-width: calc(100% - 20px);
+    font-size: 11px;
+}
+
+/* ========== GOALS PANEL ========== */
+.goals-panel {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    min-height: 300px;
+    max-height: 60vh;
+    overflow: hidden;
+}
+
 .section-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     margin-bottom: 16px;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
 .section-title {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
+    flex: 1;
 }
 
 .title-icon {
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-    border-radius: 10px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
+    font-size: 16px;
     color: white;
+    flex-shrink: 0;
 }
 
 .title-text h3 {
     margin: 0;
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 600;
     color: var(--text-primary);
 }
 
 .section-subtitle {
-    margin: 4px 0 0 0;
+    margin: 2px 0 0 0;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.goals-count {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+    padding: 6px 12px;
+    border-radius: 8px;
+    color: white;
+    min-width: 60px;
+    flex-shrink: 0;
+}
+
+.count-number {
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.count-label {
+    font-size: 9px;
+    opacity: 0.9;
+    letter-spacing: 0.5px;
+}
+
+/* ========== GOALS LIST ========== */
+.goals-list {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* Header untuk desktop dan mobile */
+.goals-list-header {
+    padding: 10px 12px;
+    background-color: rgba(255, 255, 255, 0.03);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.mobile-only {
+    display: none;
+}
+
+.desktop-only {
+    display: grid;
+    grid-template-columns: 50px 1fr 80px 100px;
+    gap: 10px;
+}
+
+.goals-list-content {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-right: 4px;
+}
+
+.goals-list-content::-webkit-scrollbar {
+    width: 4px;
+}
+
+.goals-list-content::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 2px;
+}
+
+.goals-list-content::-webkit-scrollbar-thumb {
+    background: var(--accent-blue);
+    border-radius: 2px;
+}
+
+/* Goal List Items */
+.goal-list-item {
+    background-color: rgba(255, 255, 255, 0.03);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+    overflow: hidden;
+}
+
+.goal-list-item:active {
+    background-color: rgba(255, 255, 255, 0.05);
+    transform: scale(0.98);
+}
+
+.goal-list-item.active {
+    background-color: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+/* Desktop View - Sembunyikan di mobile */
+.list-item-desktop {
+    display: none;
+}
+
+/* Mobile View */
+.list-item-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px;
+}
+
+.mobile-goal-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.mobile-goal-number .goal-badge {
+    width: 32px;
+    height: 32px;
+    background: linear-gradient(135deg, var(--accent-green), #22c55e);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: bold;
+    color: white;
+}
+
+.mobile-goal-coords {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.coord-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--text-primary);
+    font-family: 'Courier New', monospace;
+}
+
+.coord-line i {
+    width: 16px;
+    text-align: center;
+}
+
+.coord-line:nth-child(1) i {
+    color: var(--accent-red);
+}
+
+.coord-line:nth-child(2) i {
+    color: var(--accent-green);
+}
+
+.mobile-goal-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mobile-time {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 12px;
     color: var(--text-muted);
 }
 
-.section-controls {
+.mobile-actions {
     display: flex;
-    gap: 16px;
+    gap: 8px;
+}
+
+.mobile-action-btn {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-action-btn:active:not(:disabled) {
+    transform: scale(0.9);
+}
+
+.mobile-action-btn.danger {
+    background-color: rgba(239, 68, 68, 0.1);
+    color: var(--accent-red);
+}
+
+.mobile-action-btn.success {
+    background-color: rgba(34, 197, 94, 0.1);
+    color: var(--accent-green);
+}
+
+.mobile-action-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* ========== GOALS ACTIONS ========== */
+.goals-actions {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+.action-group {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px;
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    min-height: 48px;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.action-btn:active:not(:disabled) {
+    transform: scale(0.98);
+}
+
+.action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ========== QUICK ACTIONS PANEL ========== */
+.quick-actions-panel {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.mobile-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 18px;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-toggle:active {
+    background-color: rgba(255, 255, 255, 0.05);
+    transform: scale(0.9);
+}
+
+.quick-actions-content {
+    transition: all 0.3s ease;
+    overflow: hidden;
+    margin-top: 16px;
+}
+
+.quick-actions-content.collapsed {
+    max-height: 0 !important;
+    opacity: 0;
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+
+.quick-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.quick-action-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 14px 10px;
+    background-color: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    text-align: center;
+    transition: all 0.2s ease;
+    min-height: 80px;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.quick-action-btn:active:not(:disabled) {
+    transform: scale(0.95);
+}
+
+.quick-action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.action-icon {
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: white;
+    margin-bottom: 8px;
+}
+
+.action-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 13px;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+.action-desc {
+    font-size: 10px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+/* ========== CURRENT GOAL SET INFO ========== */
+.current-goal-set {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px;
+    margin-top: 12px;
+}
+
+.goal-set-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.set-name, .map-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.set-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.action-btn.small {
+    padding: 10px;
+    font-size: 13px;
+    min-height: 40px;
+}
+
+/* ========== INFO PANEL ========== */
+.info-panel {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.info-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    background-color: rgba(255, 255, 255, 0.03);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.info-icon {
+    width: 32px;
+    height: 32px;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: white;
+}
+
+.info-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.info-value {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-family: 'Courier New', monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ========== SECTION CONTROLS ========== */
+.section-controls {
+    width: 100%;
 }
 
 .control-group {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    width: 100%;
 }
 
 .control-label {
@@ -2031,79 +2593,96 @@ export default {
 }
 
 .mode-buttons {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 8px;
-    flex-wrap: wrap;
 }
 
 .mode-btn {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    padding: 8px 16px;
+    padding: 12px;
     background-color: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--border-color);
     color: var(--text-secondary);
     border-radius: 8px;
     font-size: 13px;
     font-weight: 500;
-    transition: all 0.3s ease;
-    min-height: 36px;
+    transition: all 0.2s ease;
+    min-height: 44px;
+    -webkit-tap-highlight-color: transparent;
 }
 
-.mode-btn:hover {
-    background-color: rgba(255, 255, 255, 0.1);
-    transform: translateY(-2px);
+.mode-btn:active {
+    transform: scale(0.95);
 }
 
 .mode-btn.active {
     background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
     color: white;
     border: none;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
 .mode-btn.danger {
+    grid-column: span 2;
     background-color: rgba(239, 68, 68, 0.1);
     border-color: rgba(239, 68, 68, 0.3);
     color: var(--accent-red);
 }
 
-.mode-btn.danger:hover {
-    background-color: rgba(239, 68, 68, 0.2);
-}
-
-/* Map Container */
-.map-container {
-    background-color: var(--card-bg);
-    border-radius: 16px;
-    border: 1px solid var(--border-color);
-    padding: 20px;
+/* ========== EMPTY STATE ========== */
+.empty-state {
     flex: 1;
-    min-height: 400px;
-    position: relative;
-    overflow: hidden;
-    box-shadow: 0 8px 32px var(--shadow-heavy);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
 }
 
-.map-wrapper {
-    position: relative;
-    width: fit-content;
-    margin: 0 auto;
+.empty-icon {
+    width: 60px;
+    height: 60px;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+    border-radius: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    color: white;
+    margin-bottom: 20px;
+    opacity: 0.7;
 }
 
-.map-canvas {
-    border: 2px solid var(--border-color);
-    background-color: #2d3748;
-    image-rendering: pixelated;
+.empty-state h4 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
+    color: var(--text-primary);
+}
+
+.empty-state p {
+    margin: 0 0 20px 0;
+    color: var(--text-muted);
+    font-size: 14px;
     max-width: 100%;
-    height: auto;
-    display: block;
-    border-radius: 8px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    line-height: 1.5;
 }
 
-/* Goal Indicators */
+.empty-actions {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    max-width: 300px;
+}
+
+.empty-actions .action-btn {
+    flex: 1;
+}
+
+/* ========== GOAL INDICATORS ========== */
 .goal-indicator {
     position: absolute;
     width: 40px;
@@ -2114,7 +2693,7 @@ export default {
     transition: transform 0.3s ease;
 }
 
-.goal-indicator:hover {
+.goal-indicator:active {
     transform: scale(1.2);
     z-index: 20;
 }
@@ -2132,7 +2711,6 @@ export default {
     font-weight: bold;
     font-size: 14px;
     position: relative;
-    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
 }
 
 .goal-pulse {
@@ -2162,86 +2740,356 @@ export default {
     }
 }
 
-.goal-coordinates {
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    background-color: rgba(30, 41, 59, 0.95);
-    color: white;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    white-space: nowrap;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    pointer-events: none;
-    border: 1px solid var(--border-color);
-    z-index: 30;
+/* ========== MEDIA QUERIES ========== */
+
+/* Tablet */
+@media (min-width: 768px) {
+    .goal-planning {
+        padding: 20px;
+        gap: 20px;
+    }
+    
+    .header-section {
+        flex-direction: row;
+        padding: 20px;
+        gap: 20px;
+    }
+    
+    .header-content {
+        flex-direction: row;
+        text-align: left;
+        flex: 1;
+    }
+    
+    .header-actions {
+        flex-direction: row;
+        width: auto;
+    }
+    
+    .header-btn {
+        width: auto;
+        min-width: 140px;
+    }
+    
+    .main-layout {
+        flex-direction: row;
+        gap: 20px;
+    }
+    
+    .map-section {
+        flex: 3;
+    }
+    
+    .goals-section {
+        flex: 2;
+        min-width: 300px;
+    }
+    
+    .action-group {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    
+    .mode-buttons {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    
+    .mode-btn.danger {
+        grid-column: span 1;
+    }
+    
+    /* Desktop View untuk Goals List */
+    .mobile-only {
+        display: none !important;
+    }
+    
+    .desktop-only {
+        display: grid !important;
+    }
+    
+    .list-item-desktop {
+        display: grid;
+        grid-template-columns: 50px 1fr 80px 100px;
+        gap: 10px;
+        padding: 12px 16px;
+        align-items: center;
+    }
+    
+    .list-item-mobile {
+        display: none;
+    }
+    
+    .goal-list-item {
+        margin-bottom: 6px;
+    }
+    
+    .goal-list-item:hover {
+        background-color: rgba(255, 255, 255, 0.05);
+        transform: translateY(-2px);
+    }
+    
+    .goal-list-item:active {
+        transform: scale(1);
+    }
+    
+    .action-buttons {
+        display: flex;
+        gap: 4px;
+    }
+    
+    .mobile-label {
+        display: none;
+    }
+    
+    .list-action-btn {
+        width: 30px;
+        height: 30px;
+        border: none;
+        background-color: rgba(255, 255, 255, 0.05);
+        color: var(--text-secondary);
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        transition: all 0.2s ease;
+    }
+    
+    .list-action-btn:hover:not(:disabled) {
+        background-color: var(--accent-blue);
+        color: white;
+        transform: translateY(-2px);
+    }
+    
+    .list-action-btn.danger:hover:not(:disabled) {
+        background-color: var(--accent-red);
+    }
+    
+    .list-action-btn.success:hover:not(:disabled) {
+        background-color: var(--accent-green);
+    }
+    
+    /* Quick Actions */
+    .quick-actions-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .info-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
 }
 
-.goal-indicator:hover .goal-coordinates {
-    opacity: 1;
+/* Desktop besar */
+@media (min-width: 1024px) {
+    .goal-planning {
+        padding: 24px;
+        gap: 24px;
+    }
+    
+    .header-section {
+        padding: 24px;
+    }
+    
+    .header-icon {
+        width: 60px;
+        height: 60px;
+        font-size: 28px;
+    }
+    
+    .header-text h1 {
+        font-size: 28px;
+    }
+    
+    .subtitle {
+        font-size: 14px;
+    }
+    
+    .main-layout {
+        gap: 24px;
+    }
+    
+    .goals-section {
+        min-width: 400px;
+    }
+    
+    .quick-actions-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
 }
 
-/* Map Controls Overlay */
-.map-controls-overlay {
-    position: absolute;
-    top: 16px;
-    right: 16px;
+/* Landscape mode untuk mobile */
+@media (max-height: 600px) and (orientation: landscape) {
+    .goals-panel {
+        max-height: 40vh;
+    }
+    
+    .goal-list-item {
+        padding: 10px;
+    }
+    
+    .mobile-goal-header {
+        gap: 8px;
+    }
+    
+    .coord-line {
+        font-size: 12px;
+    }
+    
+    .mobile-action-btn {
+        width: 32px;
+        height: 32px;
+        font-size: 12px;
+    }
+}
+
+/* Very small phones */
+@media (max-width: 360px) {
+    .goal-planning {
+        padding: 10px;
+        gap: 12px;
+    }
+    
+    .header-section {
+        padding: 12px;
+    }
+    
+    .goals-panel,
+    .quick-actions-panel,
+    .map-container,
+    .info-panel {
+        padding: 12px;
+    }
+    
+    .quick-actions-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .info-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .mobile-goal-coords {
+        font-size: 13px;
+    }
+    
+    .coord-line {
+        font-size: 13px;
+    }
+}
+
+/* Touch improvements */
+@media (hover: none) {
+    button,
+    .action-btn,
+    .header-btn,
+    .mode-btn,
+    .list-action-btn,
+    .mobile-action-btn {
+        min-height: 44px;
+    }
+    
+    .mobile-action-btn {
+        min-height: 36px;
+    }
+    
+    /* Remove hover effects on touch devices */
+    .goal-list-item:hover {
+        transform: none;
+    }
+    
+    .list-action-btn:hover {
+        transform: none;
+    }
+    
+    .goal-indicator:hover {
+        transform: none;
+    }
+}
+
+/* Force visible scrollbars on iOS */
+.goals-list-content {
+    -webkit-overflow-scrolling: touch;
+    overflow-y: scroll;
+}
+
+/* Prevent text selection on interactive elements */
+button,
+.mode-btn,
+.list-action-btn,
+.mobile-action-btn {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* Loading states */
+.fa-spinner {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Ensure all buttons are accessible */
+button:focus-visible,
+.action-btn:focus-visible,
+.header-btn:focus-visible {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 2px;
+}
+
+/* Hide focus rings for mouse users */
+@media (hover: hover) {
+    button:focus:not(:focus-visible) {
+        outline: none;
+    }
+}
+
+/* Input styles */
+.quick-action-input {
+    margin-bottom: 16px;
+}
+
+.input-label {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    z-index: 5;
 }
 
-.map-control-btn {
-    width: 36px;
-    height: 36px;
-    background-color: rgba(30, 41, 59, 0.9);
-    border: 1px solid var(--border-color);
-    color: var(--text-primary);
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+.label-text {
     font-size: 14px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    min-height: 36px;
+    color: var(--text-secondary);
+    font-weight: 500;
 }
 
-.map-control-btn:hover {
-    background-color: var(--accent-blue);
-    color: white;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-}
-
-/* Map Legend */
-.map-legend {
-    position: absolute;
-    bottom: 16px;
-    left: 16px;
-    background-color: rgba(30, 41, 59, 0.9);
+.input-field {
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    z-index: 5;
-    backdrop-filter: blur(4px);
-}
-
-.legend-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
     color: var(--text-primary);
+    font-size: 14px;
+    transition: all 0.2s ease;
 }
 
+.input-field:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.input-field:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.input-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* Legend color styles */
 .legend-color {
     width: 16px;
     height: 16px;
@@ -2263,924 +3111,5 @@ export default {
 
 .legend-color.goal {
     background-color: var(--accent-green);
-}
-
-/* Info Panel */
-.info-panel {
-    background-color: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 16px;
-    padding: 20px;
-    margin-top: 8px;
-}
-
-.info-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-    gap: 16px;
-}
-
-.info-card {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px;
-    background-color: rgba(255, 255, 255, 0.03);
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    transition: all 0.3s ease;
-}
-
-.info-card:hover {
-    background-color: rgba(255, 255, 255, 0.05);
-    transform: translateY(-2px);
-}
-
-.info-icon {
-    width: 36px;
-    height: 36px;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    color: white;
-}
-
-.info-content {
-    flex: 1;
-}
-
-.info-label {
-    font-size: 11px;
-    color: var(--text-muted);
-    font-weight: 500;
-    margin-bottom: 2px;
-}
-
-.info-value {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-    font-family: 'Courier New', monospace;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Goals Panel */
-.goals-panel {
-    background-color: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 16px;
-    padding: 20px;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    box-shadow: 0 8px 32px var(--shadow-heavy);
-}
-
-.goals-count {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-    padding: 8px 16px;
-    border-radius: 10px;
-    color: white;
-    min-width: 70px;
-}
-
-.count-number {
-    font-size: 24px;
-    font-weight: 700;
-}
-
-.count-label {
-    font-size: 10px;
-    opacity: 0.9;
-    letter-spacing: 1px;
-}
-
-/* Empty State */
-.empty-state {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 40px 20px;
-    text-align: center;
-}
-
-.empty-icon {
-    width: 80px;
-    height: 80px;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-    border-radius: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 36px;
-    color: white;
-    margin-bottom: 20px;
-    opacity: 0.7;
-}
-
-.empty-state h4 {
-    margin: 0 0 8px 0;
-    font-size: 18px;
-    color: var(--text-primary);
-}
-
-.empty-state p {
-    margin: 0 0 20px 0;
-    color: var(--text-muted);
-    font-size: 14px;
-    max-width: 300px;
-}
-
-.empty-actions {
-    display: flex;
-    gap: 12px;
-    width: 100%;
-    max-width: 300px;
-}
-
-.empty-actions .action-btn {
-    flex: 1;
-}
-
-/* Goals List */
-.goals-list {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-}
-
-.goals-list-header {
-    display: grid;
-    grid-template-columns: 50px 1fr 80px 100px;
-    gap: 12px;
-    padding: 12px 16px;
-    background-color: rgba(255, 255, 255, 0.03);
-    border-radius: 8px;
-    margin-bottom: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.header-item {
-    font-size: 11px;
-    color: var(--text-muted);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.goals-list-content {
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
-}
-
-.goal-list-item {
-    display: grid;
-    grid-template-columns: 50px 1fr 80px 100px;
-    gap: 12px;
-    padding: 12px 16px;
-    background-color: rgba(255, 255, 255, 0.03);
-    border-radius: 8px;
-    margin-bottom: 8px;
-    border: 1px solid transparent;
-    transition: all 0.3s ease;
-    cursor: pointer;
-    align-items: center;
-}
-
-.goal-list-item:hover {
-    background-color: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.1);
-    transform: translateX(4px);
-}
-
-.goal-list-item.active {
-    background-color: rgba(59, 130, 246, 0.1);
-    border-color: rgba(59, 130, 246, 0.3);
-}
-
-.goal-badge {
-    width: 28px;
-    height: 28px;
-    background: linear-gradient(135deg, var(--accent-green), #22c55e);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    font-weight: bold;
-    color: white;
-    margin: 0 auto;
-}
-
-.coord-display {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.coord-x,
-.coord-y {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--text-primary);
-    font-family: 'Courier New', monospace;
-    white-space: nowrap;
-}
-
-.coord-x i {
-    color: var(--accent-red);
-}
-
-.coord-y i {
-    color: var(--accent-green);
-}
-
-.time-display {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--text-muted);
-    white-space: nowrap;
-}
-
-.list-item-actions {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-    justify-content: flex-end;
-}
-
-.list-action-btn {
-    width: 28px;
-    height: 28px;
-    border: none;
-    background-color: rgba(255, 255, 255, 0.05);
-    color: var(--text-secondary);
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    transition: all 0.3s ease;
-    flex-shrink: 0;
-}
-
-.list-action-btn:hover:not(:disabled) {
-    background-color: var(--accent-blue);
-    color: white;
-    transform: translateY(-2px);
-}
-
-.list-action-btn.danger:hover:not(:disabled) {
-    background-color: var(--accent-red);
-}
-
-.list-action-btn.success:hover:not(:disabled) {
-    background-color: var(--accent-green);
-}
-
-.list-action-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-}
-
-/* Goals Actions */
-.goals-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    margin-top: 20px;
-    padding-top: 20px;
-    border-top: 1px solid var(--border-color);
-}
-
-.action-group {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-}
-
-.action-btn {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 12px 20px;
-    background-color: rgba(255, 255, 255, 0.05);
-    border: 1px solid var(--border-color);
-    color: var(--text-secondary);
-    border-radius: 10px;
-    font-weight: 500;
-    text-decoration: none;
-    transition: all 0.3s ease;
-    min-width: 120px;
-    min-height: 44px;
-}
-
-.action-btn:hover:not(:disabled) {
-    background-color: rgba(255, 255, 255, 0.1);
-    transform: translateY(-2px);
-    color: var(--text-primary);
-}
-
-.action-btn.primary {
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-    color: white;
-    border: none;
-}
-
-.action-btn.primary:hover:not(:disabled) {
-    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
-    transform: translateY(-2px);
-}
-
-.action-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.action-btn.small {
-    padding: 8px 12px;
-    font-size: 13px;
-    min-width: auto;
-    min-height: 36px;
-}
-
-.btn-text {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Current Goal Set Info */
-.current-goal-set {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 16px;
-    margin-top: 8px;
-}
-
-.goal-set-info {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.set-name, .map-name {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.set-name i {
-    color: var(--accent-blue);
-    flex-shrink: 0;
-}
-
-.map-name i {
-    color: var(--accent-green);
-    flex-shrink: 0;
-}
-
-.set-actions {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-/* Quick Actions Panel */
-.quick-actions-panel {
-    background-color: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 16px;
-    padding: 20px;
-    box-shadow: 0 8px 32px var(--shadow-heavy);
-}
-
-.quick-actions-content {
-    transition: all 0.3s ease;
-    width: 100%;
-    overflow: hidden;
-}
-
-.quick-actions-content.collapsed {
-    max-height: 0;
-    opacity: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    margin-top: 0;
-}
-
-.mobile-toggle {
-    display: none;
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    font-size: 16px;
-    cursor: pointer;
-    padding: 8px;
-    border-radius: 6px;
-    transition: all 0.3s ease;
-    min-height: 40px;
-    min-width: 40px;
-    align-items: center;
-    justify-content: center;
-}
-
-.mobile-toggle:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: var(--text-primary);
-}
-
-.quick-action-input {
-    margin-bottom: 16px;
-}
-
-.quick-actions-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-}
-
-.quick-action-btn {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px;
-    background-color: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 12px;
-    text-align: left;
-    transition: all 0.3s ease;
-    min-height: 70px;
-}
-
-.quick-action-btn:hover:not(:disabled) {
-    background-color: rgba(255, 255, 255, 0.05);
-    transform: translateY(-2px);
-    border-color: var(--accent-blue);
-}
-
-.quick-action-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.action-icon {
-    width: 40px;
-    height: 40px;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    color: white;
-    flex-shrink: 0;
-}
-
-.action-text {
-    flex: 1;
-    min-width: 0;
-}
-
-.action-title {
-    font-weight: 600;
-    color: var(--text-primary);
-    font-size: 14px;
-    margin-bottom: 4px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.action-desc {
-    font-size: 11px;
-    color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Responsive Design */
-@media (max-width: 1200px) {
-    .main-layout {
-        grid-template-columns: 1fr;
-    }
-
-    .goals-section {
-        max-height: none;
-        min-height: 500px;
-    }
-}
-
-@media (max-width: 768px) {
-    .header-section {
-        flex-direction: column;
-        gap: 20px;
-        align-items: stretch;
-        padding: 16px;
-    }
-
-    .header-content {
-        flex-direction: column;
-        text-align: center;
-        gap: 16px;
-    }
-
-    .header-actions {
-        justify-content: center;
-        width: 100%;
-    }
-
-    .header-btn {
-        flex: 1;
-        min-width: 140px;
-    }
-
-    .section-header {
-        flex-direction: column;
-        gap: 16px;
-        align-items: stretch;
-    }
-
-    .section-controls {
-        width: 100%;
-    }
-
-    .goals-count {
-        align-self: center;
-        margin-top: 10px;
-    }
-
-    .info-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .quick-actions-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .quick-actions-panel .section-header {
-        flex-direction: row;
-        align-items: center;
-    }
-    
-    .mobile-toggle {
-        display: flex;
-    }
-
-    /* Perbaikan untuk goals list di mobile */
-    .goals-list-header {
-        grid-template-columns: 40px 1fr 70px 90px;
-        padding: 10px 12px;
-        font-size: 10px;
-    }
-
-    .goal-list-item {
-        grid-template-columns: 40px 1fr 70px 90px;
-        padding: 10px 12px;
-        gap: 8px;
-    }
-
-    .goal-badge {
-        width: 24px;
-        height: 24px;
-        font-size: 11px;
-    }
-
-    .coord-display {
-        gap: 2px;
-    }
-
-    .coord-x, .coord-y {
-        font-size: 12px;
-    }
-
-    .time-display {
-        font-size: 11px;
-    }
-
-    .list-action-btn {
-        width: 26px;
-        height: 26px;
-        font-size: 11px;
-    }
-
-    /* Perbaikan untuk action buttons di mobile */
-    .action-group {
-        flex-direction: row;
-        flex-wrap: wrap;
-    }
-
-    .action-btn {
-        flex: 1 0 calc(50% - 6px);
-        min-width: 0;
-        padding: 10px 12px;
-        font-size: 13px;
-    }
-
-    .btn-text {
-        font-size: 12px;
-    }
-
-    /* Perbaikan untuk current goal set di mobile */
-    .goal-set-info {
-        flex-direction: column;
-    }
-
-    .set-name, .map-name {
-        font-size: 13px;
-    }
-
-    .set-actions {
-        justify-content: center;
-    }
-
-    .action-btn.small {
-        flex: 1;
-        min-width: 0;
-    }
-    
-    /* Map Controls untuk Mobile */
-    .map-controls-overlay {
-        top: 10px;
-        right: 10px;
-        gap: 6px;
-    }
-    
-    .map-control-btn {
-        width: 40px;
-        height: 40px;
-        font-size: 16px;
-    }
-    
-    .map-legend {
-        bottom: 10px;
-        left: 10px;
-        padding: 10px;
-        font-size: 11px;
-    }
-    
-    .legend-item {
-        gap: 6px;
-    }
-    
-    .legend-color {
-        width: 14px;
-        height: 14px;
-    }
-}
-
-@media (max-width: 480px) {
-    .header-section {
-        padding: 16px;
-    }
-
-    .header-icon {
-        width: 50px;
-        height: 50px;
-        font-size: 22px;
-    }
-
-    .header-text h1 {
-        font-size: 22px;
-    }
-
-    .subtitle {
-        font-size: 13px;
-    }
-
-    .header-actions {
-        flex-direction: column;
-        width: 100%;
-    }
-
-    .header-btn {
-        width: 100%;
-        justify-content: center;
-    }
-
-    .main-layout {
-        gap: 16px;
-    }
-
-    .map-section,
-    .goals-section {
-        gap: 16px;
-    }
-
-    .map-container {
-        padding: 12px;
-    }
-
-    .goals-panel {
-        padding: 16px;
-    }
-
-    .quick-actions-panel {
-        padding: 16px;
-    }
-
-    /* Goals List untuk Mobile sangat kecil */
-    .goals-list-header {
-        grid-template-columns: 35px 1fr 65px;
-        padding: 8px 10px;
-        font-size: 9px;
-    }
-    
-    .goal-list-item {
-        grid-template-columns: 35px 1fr 65px;
-        padding: 8px 10px;
-        gap: 6px;
-    }
-    
-    .header-item:nth-child(3),
-    .list-item-time {
-        display: none;
-    }
-    
-    /* Make coordinates more compact */
-    .coord-display {
-        flex-direction: row;
-        gap: 8px;
-        flex-wrap: wrap;
-    }
-    
-    .coord-x, .coord-y {
-        font-size: 11px;
-    }
-    
-    /* Empty State untuk Mobile */
-    .empty-state {
-        padding: 20px 16px;
-    }
-    
-    .empty-icon {
-        width: 60px;
-        height: 60px;
-        font-size: 24px;
-        margin-bottom: 16px;
-    }
-    
-    .empty-state h4 {
-        font-size: 16px;
-        margin-bottom: 6px;
-    }
-    
-    .empty-state p {
-        font-size: 13px;
-        margin-bottom: 16px;
-    }
-    
-    .empty-actions {
-        flex-direction: column;
-        width: 100%;
-    }
-    
-    .empty-actions .action-btn {
-        width: 100%;
-    }
-}
-
-/* Mobile sangat kecil - adjust goals list */
-@media (max-width: 380px) {
-    .goals-list-header {
-        grid-template-columns: 35px 1fr 60px 80px;
-        font-size: 9px;
-    }
-    
-    .goal-list-item {
-        grid-template-columns: 35px 1fr 60px 80px;
-    }
-    
-    .list-item-time {
-        display: block;
-    }
-    
-    .time-display {
-        font-size: 10px;
-    }
-    
-    .action-btn {
-        flex: 1 0 100%;
-    }
-}
-
-/* Tablet kecil landscape */
-@media (max-height: 600px) and (orientation: landscape) {
-    .goals-section {
-        min-height: 300px;
-    }
-    
-    .goals-list-content {
-        max-height: 200px;
-    }
-}
-
-/* Landscape orientation untuk mobile */
-@media (max-width: 480px) and (orientation: landscape) {
-    .goals-section {
-        min-height: 250px;
-    }
-    
-    .goals-list-content {
-        max-height: 150px;
-    }
-}
-
-/* Tambahan untuk button states di mobile */
-@media (hover: none) {
-    .action-btn:active,
-    .header-btn:active,
-    .mode-btn:active,
-    .list-action-btn:active,
-    .map-control-btn:active {
-        transform: translateY(0);
-        background-color: rgba(255, 255, 255, 0.1);
-    }
-    
-    .action-btn.primary:active {
-        background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-        transform: translateY(0);
-    }
-}
-
-/* Pastikan semua button tetap bisa diklik di mobile */
-button:not(:disabled),
-.action-btn:not(:disabled),
-.header-btn:not(:disabled),
-.mode-btn:not(:disabled),
-.list-action-btn:not(:disabled) {
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-}
-
-/* Improve touch targets for mobile */
-@media (max-width: 768px) {
-    button,
-    .action-btn,
-    .header-btn,
-    .mode-btn,
-    .list-action-btn {
-        min-height: 44px;
-    }
-    
-    .map-control-btn {
-        width: 44px;
-        height: 44px;
-    }
-}
-
-/* Ensure buttons are always visible and clickable */
-@media (max-width: 768px) {
-    .goals-actions .action-group {
-        display: flex !important;
-        flex-wrap: wrap !important;
-    }
-    
-    .goals-actions .action-btn {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        pointer-events: auto !important;
-    }
-}
-
-/* Prevent text overflow */
-.goal-list-item *,
-.action-btn span,
-.header-btn span,
-.set-name,
-.map-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 </style>
