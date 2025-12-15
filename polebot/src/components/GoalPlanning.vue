@@ -720,7 +720,7 @@ export default {
                 };
 
                 // Kirim ke API
-                const response = await fetch('http://localhost:3000/api/goals/save', {
+                const response = await fetch(`http://${window.location.hostname}:3000/api/goals/save`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -760,7 +760,7 @@ export default {
             try {
                 this.isLoadingGoals = true;
 
-                const response = await fetch('http://localhost:3000/api/goals/sets');
+                const response = await fetch(`http://${window.location.hostname}:3000/api/goals/sets`);
                 const result = await response.json();
 
                 if (!response.ok) {
@@ -785,7 +785,7 @@ export default {
                 this.isLoadingGoals = true;
                 this.showNotification('info', `Loading goal set "${setName}"...`);
 
-                const response = await fetch(`http://localhost:3000/api/goals/set/${setName}`);
+                const response = await fetch(`http://${window.location.hostname}:3000/api/goals/set/${setName}`);
                 const result = await response.json();
 
                 if (!response.ok) {
@@ -837,7 +837,7 @@ export default {
             try {
                 this.isLoadingGoals = true;
 
-                const response = await fetch(`http://localhost:3000/api/goals/set/id/${id}`);
+                const response = await fetch(`http://${window.location.hostname}:3000/api/goals/set/id/${id}`);
                 const result = await response.json();
 
                 if (!response.ok) {
@@ -899,7 +899,7 @@ export default {
                 this.isSavingGoals = true;
                 this.showNotification('info', `Updating "${this.currentGoalSet.name}"...`);
 
-                const response = await fetch(`http://localhost:3000/api/goals/set/${this.currentGoalSet.name}`, {
+                const response = await fetch(`http://${window.location.hostname}:3000/api/goals/set/${this.currentGoalSet.name}`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -935,7 +935,7 @@ export default {
             if (!confirm(`Are you sure you want to delete "${setName}"?`)) return;
 
             try {
-                const response = await fetch(`http://localhost:3000/api/goals/set/${setName}`, {
+                const response = await fetch(`http://${window.location.hostname}:3000/api/goals/set/${setName}`, {
                     method: 'DELETE'
                 });
 
@@ -1385,7 +1385,7 @@ export default {
 
         async searchGoalSets(searchTerm) {
             try {
-                const response = await fetch(`http://localhost:3000/api/goals/search?name=${encodeURIComponent(searchTerm)}`);
+                const response = await fetch(`http://${window.location.hostname}:3000/api/goals/search?name=${encodeURIComponent(searchTerm)}`);
                 const result = await response.json();
 
                 if (response.ok) {

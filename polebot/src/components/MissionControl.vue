@@ -995,7 +995,7 @@ export default {
 
     async loadCategories() {
       try {
-        const response = await fetch('http://localhost:3000/api/categories')
+        const response = await fetch(`http://${window.location.hostname}:3000/api/categories`)
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)
         }
@@ -1017,7 +1017,7 @@ export default {
 
     async loadGoalSets() {
       try {
-        const response = await fetch('http://localhost:3000/api/goals/sets')
+        const response = await fetch(`http://${window.location.hostname}:3000/api/goals/sets`)
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)
         }
@@ -1059,7 +1059,7 @@ export default {
     async loadGoals() {
       this.isLoadingGoals = true
       try {
-        const response = await fetch('http://localhost:3000/api/goals/sets')
+        const response = await fetch(`http://${window.location.hostname}:3000/api/goals/sets`)
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)
         }
@@ -1071,7 +1071,7 @@ export default {
 
           for (const goalSet of result.goalSets) {
             try {
-              const setResponse = await fetch(`http://localhost:3000/api/goals/set/id/${goalSet.id}`)
+              const setResponse = await fetch(`http://${window.location.hostname}:3000/api/goals/set/id/${goalSet.id}`)
               if (setResponse.ok) {
                 const setResult = await setResponse.json()
 
@@ -1127,7 +1127,7 @@ export default {
 
     async loadMissions() {
       try {
-        const response = await fetch('http://localhost:3000/api/missions')
+        const response = await fetch(`http://${window.location.hostname}:3000/api/missions`)
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)
         }
@@ -1150,7 +1150,7 @@ export default {
     async loadMission(mission) {
       try {
         console.log('Loading mission with triggers:', mission.id)
-        const response = await fetch(`http://localhost:3000/api/missions/with-triggers/${mission.id}`)
+        const response = await fetch(`http://${window.location.hostname}:3000/api/missions/with-triggers/${mission.id}`)
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)
         }
@@ -1217,8 +1217,8 @@ export default {
 
       try {
         const url = this.editingCategory
-          ? `http://localhost:3000/api/categories/${this.newCategory.id}`
-          : 'http://localhost:3000/api/categories'
+          ? `http://${window.location.hostname}:3000/api/categories/${this.newCategory.id}`
+          : `http://${window.location.hostname}:3000/api/categories`
 
         const method = this.editingCategory ? 'PUT' : 'POST'
 
@@ -1254,7 +1254,7 @@ export default {
       }
 
       try {
-        const response = await fetch(`http://localhost:3000/api/categories/${categoryId}`, {
+        const response = await fetch(`http://${window.location.hostname}:3000/api/categories/${categoryId}`, {
           method: 'DELETE'
         })
 
@@ -1445,7 +1445,7 @@ export default {
         console.log('Sending mission data:', missionData)
 
         // Coba endpoint tanpa goals terlebih dahulu
-        let response = await fetch('http://localhost:3000/api/missions', {
+        let response = await fetch(`http://${window.location.hostname}:3000/api/missions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1455,7 +1455,7 @@ export default {
 
         // Jika gagal dengan endpoint pertama, coba endpoint kedua
         if (!response.ok) {
-          response = await fetch('http://localhost:3000/api/missions/with-triggers', {
+          response = await fetch(`http://${window.location.hostname}:3000/api/missions/with-triggers`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
@@ -1525,7 +1525,7 @@ export default {
           }]
         }
 
-        const response = await fetch('http://localhost:3000/api/missions/with-triggers', {
+        const response = await fetch(`http://${window.location.hostname}:3000/api/missions/with-triggers`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1582,8 +1582,8 @@ export default {
         }
 
         const url = this.currentMission.id
-          ? `http://localhost:3000/api/missions/with-triggers/${this.currentMission.id}`
-          : 'http://localhost:3000/api/missions/with-triggers'
+          ? `http://${window.location.hostname}:3000/api/missions/with-triggers/${this.currentMission.id}`
+          : `http://${window.location.hostname}:3000/api/missions/with-triggers`
 
         const method = this.currentMission.id ? 'PUT' : 'POST'
 
@@ -1645,7 +1645,7 @@ export default {
       if (!confirm('Are you sure you want to delete this mission?')) return
 
       try {
-        const response = await fetch(`http://localhost:3000/api/missions/${missionId}`, {
+        const response = await fetch(`http://${window.location.hostname}:3000/api/missions/${missionId}`, {
           method: 'DELETE'
         })
 
@@ -1693,7 +1693,7 @@ export default {
       }
 
       try {
-        await fetch(`http://localhost:3000/api/missions/${mission.id}/execute`, {
+        await fetch(`http://${window.location.hostname}:3000/api/missions/${mission.id}/execute`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' }
         })

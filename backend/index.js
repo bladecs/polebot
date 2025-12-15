@@ -15,7 +15,7 @@ app.use(express.urlencoded({ extended: true }));
 const pool = mysql.createPool({
     host: 'localhost',
     user: 'root',
-    password: '',
+    password: 'amr2025',
     database: 'polebot',
     waitForConnections: true,
     connectionLimit: 10,

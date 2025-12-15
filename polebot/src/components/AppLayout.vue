@@ -106,8 +106,7 @@ export default {
       sidebarCollapsed: false,
       ros: null,
       isConnected: false,
-      rosBridgeUrl: 'ws://localhost:9090',
-
+      rosBridgeUrl: `ws://${window.location.hostname}:9090`,
       // Map data
       mapInfo: null,
       mapData: null,
